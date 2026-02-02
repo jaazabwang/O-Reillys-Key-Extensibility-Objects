@@ -1,0 +1,77 @@
+************* To report the Sales and Returns arrival and Dispatch Billing Documents Intrastat Reporting*******
+*** Data Declarations
+ DATA: lv_db_sel_date_limit_low  LIKE syst-datlo.
+ DATA: lv_db_sel_date_limit_high LIKE syst-datlo.
+
+ lv_db_sel_date_limit_high+0(4) = intrastatdeclarationyear.
+ lv_db_sel_date_limit_high+4(2) = intrastatdeclarationmonth.
+ lv_db_sel_date_limit_high+6(2) = '32'.
+ lv_db_sel_date_limit_low+0(6)  = lv_db_sel_date_limit_high+0(6).
+ lv_db_sel_date_limit_low+6(2)  = '00'.
+
+**** Dispatch Logic
+ "To get the Customer Invoices and Credit Memos
+ IF intrastatproviderofinformation = 'IE_POI' AND intrastatselectionprogram = 'A'.
+   SELECT a~billingdocument, a~billingdocumentitem
+   FROM i_billingdocumentitem WITH PRIVILEGED ACCESS AS a
+   INNER JOIN i_billingdocument WITH PRIVILEGED ACCESS AS b
+   ON  b~billingdocument = a~billingdocument
+   INNER JOIN i_country AS c
+   ON c~country = a~country
+   WHERE ( a~billingdocumenttype   = 'F2'
+   OR    a~billingdocumenttype   = 'G2' )
+   AND   b~companycode           = 'IE01'
+   AND   b~country NE 'IE'
+   AND   c~iseuropeanunionmember = 'X'
+   AND   a~billingdocumentdate BETWEEN @lv_db_sel_date_limit_low AND @lv_db_sel_date_limit_high
+   AND   b~accountingtransferstatus     = 'C'
+   AND   b~isintrastatreportingexcluded = ''
+   INTO CORRESPONDING FIELDS OF TABLE @billingdocuments.
+ ENDIF.
+
+***** Arrival Logic
+ "To get the Customer Invoices and Credit Memos
+ IF intrastatproviderofinformation = 'IE_POI' AND intrastatselectionprogram = 'B'.
+   SELECT a~billingdocument,a~billingdocumentitem,a~product,a~batch,a~referencesddocument,a~referencesddocumentitem
+   FROM i_billingdocumentitem WITH PRIVILEGED ACCESS AS a
+   INNER JOIN i_billingdocument WITH PRIVILEGED ACCESS AS b
+   ON  b~billingdocument = a~billingdocument
+   INNER JOIN i_country AS c
+   ON c~country = a~country
+   WHERE ( a~billingdocumenttype   = 'F2'
+   OR    a~billingdocumenttype   = 'G2' )
+   AND   b~companycode           = 'IE01'
+   AND   b~country NE 'IE'
+   AND   c~iseuropeanunionmember = 'X'
+   AND   a~billingdocumentdate BETWEEN @lv_db_sel_date_limit_low AND @lv_db_sel_date_limit_high
+   AND   b~accountingtransferstatus     = 'C'
+   AND   b~isintrastatreportingexcluded = ''
+   INTO TABLE @DATA(lt_customerinvoices).
+
+   "For each Customer Invoice / Credit Memo get the Sales and Returns Intercompany documents
+   IF sy-subrc = 0.
+     SELECT a~billingdocument, a~billingdocumentitem
+     FROM i_billingdocumentitem WITH PRIVILEGED ACCESS AS a
+     INNER JOIN i_billingdocument WITH PRIVILEGED ACCESS AS b
+     ON  b~billingdocument = a~billingdocument
+     INNER JOIN @lt_customerinvoices AS c
+     ON  c~product                 = a~product
+     AND c~batch                   = a~batch
+     WHERE ( a~billingdocumenttype = 'IV2'
+     OR    a~billingdocumenttype = 'IG' )
+     AND   a~companycode         = 'UK01'
+     AND   a~billingdocumentdate BETWEEN @lv_db_sel_date_limit_low AND @lv_db_sel_date_limit_high
+     AND   b~accountingtransferstatus     = 'C'
+     AND   b~isintrastatreportingexcluded = ''
+    INTO TABLE @DATA(lt_invoices).
+
+     IF sy-subrc = 0.
+       SORT lt_invoices ASCENDING BY billingdocument billingdocumentitem.
+       DELETE ADJACENT DUPLICATES FROM lt_invoices COMPARING billingdocument billingdocumentitem.
+       "to pass the documents in the final table
+       SELECT *
+       FROM @lt_invoices AS a
+       INTO CORRESPONDING FIELDS OF TABLE @billingdocuments.
+     ENDIF.
+   ENDIF.
+ ENDIF.
