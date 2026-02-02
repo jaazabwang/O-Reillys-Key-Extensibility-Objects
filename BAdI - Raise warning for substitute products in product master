@@ -1,0 +1,62 @@
+
+DATA: ls_message LIKE LINE OF messages.
+
+"To get the substitute product details
+SELECT SINGLE product,substituteproduct
+FROM yy1_material WITH PRIVILEGED ACCESS
+WHERE product = @purchaseorderitem-material
+INTO @DATA(ls_product).
+
+"To raise the warning if selected product has a substitute product
+IF sy-subrc = 0.
+  IF purchaseorderitem-material = ls_product-product.
+    ls_message-messagetype = 'W'.
+    ls_message-messageid = 'MEPO'.
+    ls_message-messagenumber = '250'.
+    ls_message-messagevariable1 = purchaseorderitem-purchaseorderitem && |:| && | Product | && ls_product-substituteproduct && | is a substitute|.
+    APPEND ls_message TO messages.
+    CLEAR ls_message.
+  ENDIF.
+ENDIF.
+   "to fetch data for bonus1 and bonus2.
+
+select a~purchaseorder, a~purchaseorderitem , a~conditiontype, a~conditionratevalue , b~Purchasinginforecord
+from I_PurOrdItmPricingElementAPI01  WITH PRIVILEGED ACCESS as a
+inner join  I_purchaseorderitemapi01 with PRIVILEGED ACCESS as b
+"where purchaseorder = @purchaseorder
+ on  a~purchaseorder = b~purchaseorder
+ where a~purchaseorder =  @PURCHASEORDERITEM-PURCHASEORDER
+ and  a~purchaseorderitem =  @PURCHASEORDERITEM-PURCHASEORDERITEM
+ and   b~Purchasinginforecord = @PURCHASEORDERITEM-purchasinginforecord
+ and ( a~conditiontype = 'ZLOC' or a~conditiontype = 'ZLC2' or a~conditiontype = 'ZLC3' or a~conditiontype = 'ZLC1' or a~conditiontype = 'ZMM' or
+     a~conditiontype = 'ZMM1' or a~conditiontype = 'ZLT' or a~conditiontype = 'ZLT2' or a~conditiontype = 'ZLT1' or a~conditiontype = 'ZXM' or a~conditiontype = 'ZES' or
+     a~conditiontype = 'ZES1' or a~conditiontype = 'ZQD' or a~conditiontype = 'ZRC'  or a~conditiontype = 'ZHO' or
+     a~conditiontype = 'ZTS'  OR a~conditiontype = 'ZTS1' or a~conditiontype = 'ZJS' or a~conditiontype = 'ZJS1' or a~conditiontype = 'ZPL' or
+     a~conditiontype = 'ZPL1' or a~conditiontype = 'ZTD' or a~conditiontype = 'ZFB'  or a~conditiontype = 'ZTR' or
+     a~conditiontype = 'ZTR1' or a~conditiontype = 'ZTR2'  or  a~conditiontype = 'ZTFG' )
+
+into table @DATA(lt_condition).
+data(lv_lines) = lines(  lt_condition ).
+
+IF lt_condition is not initial.
+read table lt_condition into data(ls_condition) index 1.
+PURCHASEORDERITEMCHANGE-yy1_bonus1_pdi  = ls_condition-conditionratevalue.
+"<purdocitem_extension>-yy1_bonus1_pdi = ls_condition-conditionratevalue.
+if lv_lines > 1.
+read table lt_condition into data(ls_condition1) index 2.
+if PURCHASEORDERITEMCHANGE-yy1_bonus1_pdi  is not initial.
+PURCHASEORDERITEMCHANGE-yy1_bonus2_pdi  = ls_condition1-conditionratevalue.
+"<purdocitem_extension>-yy1_bonus2_pdi = ls_condition-conditionratevalue.
+endif.
+endif.
+endif.
+
+
+
+
+
+
+
+
+
+
