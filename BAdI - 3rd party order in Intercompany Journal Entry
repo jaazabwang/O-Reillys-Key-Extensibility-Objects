@@ -1,0 +1,281 @@
+DATA ls_accountingdocitemout TYPE fins_acdoc_out.
+DATA lv_lastmonth TYPE c LENGTH 2.
+
+
+CONSTANTS: cv_zor1      TYPE c LENGTH 4 VALUE 'ZOR1',
+           cv_zor2      TYPE c LENGTH 4 VALUE 'ZOR2',
+           cv_zor3      TYPE c LENGTH 4 VALUE 'ZOR3',
+           cv_zor4      TYPE c LENGTH 4 VALUE 'ZOR4',
+           cv_lastmonth TYPE c LENGTH 2 VALUE '12'.
+
+CLEAR ls_accountingdocitemout.
+CLEAR accountingdocitemsout.
+
+LOOP AT accountingdocitems INTO DATA(ls_accountingdocitems).
+**** Copy the values from input to output structures for substitution
+  MOVE-CORRESPONDING ls_accountingdocitems TO ls_accountingdocitemout.
+*****Check if customer is 'ICIE01'
+  IF ls_accountingdocitems-customer = 'ICIE01' AND accountingdocheader-accountingdocumenttype = 'RV' AND ls_accountingdocitems-financialaccounttype = 'D'.
+**** To read the financial account type 'S' line items
+    READ TABLE accountingdocitems INTO DATA(ls_salesitems) WITH KEY financialaccounttype = 'S'.
+****Populate the accountingdocumentout assignment ref field
+    IF sy-subrc = 0.
+      ls_accountingdocitemout-assignmentreference = ls_salesitems-assignmentreference.
+      substitutiondone                            = abap_true.
+    ENDIF.
+***** Verify if the supplier is 10000000
+  ELSEIF ls_accountingdocitems-supplier = '0010000000' AND accountingdocheader-accountingdocumenttype = 'RE'
+  AND ls_accountingdocitems-financialaccounttype = 'K'.
+**** To read the financial account type 'S' line items
+    READ TABLE accountingdocitems INTO DATA(ls_salesaccounting) WITH KEY financialaccounttype = 'S'.
+
+    IF sy-subrc = 0.
+******* To get the outbound del. by passing the purchasing doc.
+      SELECT SINGLE documentreferenceid
+      FROM i_purchaseorderhistoryapi01 WITH PRIVILEGED ACCESS
+      WHERE purchaseorder = @ls_salesaccounting-purchasingdocument
+      INTO @DATA(lv_outbounddel).
+
+      IF sy-subrc = 0.
+******* To get the sales order by passing the outbond del.
+        SELECT SINGLE deliverydocumentbysupplier
+        FROM i_outbounddelivery WITH PRIVILEGED ACCESS
+        WHERE outbounddelivery = @lv_outbounddel
+        INTO @DATA(lv_salesorder).
+****Populate the accountingdocumentout assignment ref field
+        IF sy-subrc = 0.
+          ls_accountingdocitemout-assignmentreference = lv_salesorder.
+          substitutiondone                            = abap_true.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+****Purchasing Intercompany
+  IF ls_accountingdocitems-customer = '0010000000' AND accountingdocheader-accountingdocumenttype = 'RV'
+  AND ls_accountingdocitems-financialaccounttype = 'D'.
+**** To read the financial account type 'S' line items
+    READ TABLE accountingdocitems INTO DATA(ls_purchasebillingaccounting) WITH KEY financialaccounttype = 'S'.
+****Populate the accountingdocumentout assignment ref field
+    IF sy-subrc = 0.
+      ls_accountingdocitemout-assignmentreference = ls_purchasebillingaccounting-purchasingdocument.
+      substitutiondone                            = abap_true.
+    ENDIF.
+
+  ELSEIF ls_accountingdocitems-supplier = 'ICIE01' AND accountingdocheader-accountingdocumenttype = 'RE'
+  AND ls_accountingdocitems-financialaccounttype = 'K'.
+
+    READ TABLE accountingdocitems INTO DATA(ls_purchasesupplierinvoice) WITH KEY financialaccounttype = 'S'.
+****Populate the accountingdocumentout assignment ref field
+    IF sy-subrc = 0.
+      ls_accountingdocitemout-assignmentreference = ls_purchasesupplierinvoice-purchasingdocument.
+      substitutiondone                            = abap_true.
+    ENDIF.
+  ENDIF.
+
+***** Intercompany Material Document  -- To pass the sales order in assignment ref as User is checking assigment reference field while reconciling the documents
+
+  IF accountingdocheader-accountingdocumenttype = 'WL' AND ls_accountingdocitems-financialaccounttype = 'S'
+  AND accountingdocheader-companycode = 'IE01'.
+******* To get the sales document as we are getting the outbound delivery in sales document field
+    SELECT SINGLE deliverydocumentbysupplier
+    FROM i_outbounddelivery
+    WHERE outbounddelivery = @ls_accountingdocitems-salesdocument
+    INTO @DATA(lv_salesdocument).
+
+    IF sy-subrc = 0.
+      ls_accountingdocitemout-assignmentreference = lv_salesdocument.
+      substitutiondone                            = abap_true.
+    ENDIF.
+  ENDIF.
+
+********** To pass the Sales Order in Respective G/L Line
+  CLEAR:lv_outbounddel,lv_salesorder.
+  IF accountingdocheader-accountingdocumenttype = 'RE' AND ls_accountingdocitems-financialaccounttype = 'S'
+     AND ls_accountingdocitems-glaccount = '0052541000'.
+
+    SELECT SINGLE documentreferenceid
+    FROM i_purchaseorderhistoryapi01 WITH PRIVILEGED ACCESS
+    WHERE purchaseorder = @ls_accountingdocitems-purchasingdocument
+    INTO @lv_outbounddel.
+
+    IF sy-subrc = 0.
+
+      SELECT SINGLE deliverydocumentbysupplier
+       FROM i_outbounddelivery WITH PRIVILEGED ACCESS
+       WHERE outbounddelivery = @lv_outbounddel
+       INTO @lv_salesorder.
+
+      IF sy-subrc = 0.
+        ls_accountingdocitemout-assignmentreference = lv_salesorder.
+        substitutiondone                            = abap_true.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+  IF accountingdocheader-accountingdocumenttype = 'WE' AND ls_accountingdocitems-financialaccounttype = 'S'
+   AND ls_accountingdocitems-glaccount = '0021776000'.
+
+    IF ls_accountingdocitems-assignmentreference IS NOT INITIAL.
+      "get the contract variant
+      SELECT SINGLE cndncontrprocvar
+      FROM i_conditioncontract WITH PRIVILEGED ACCESS
+      WHERE conditioncontract = @ls_accountingdocitems-assignmentreference
+      INTO @DATA(lv_variant).
+
+      IF lv_variant IS NOT INITIAL.
+        IF lv_variant = cv_zor1. "Quarter Variant
+          "get the quarter and month
+          SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+          FROM i_calendardate WITH PRIVILEGED ACCESS
+          WHERE calendardate = @accountingdocheader-documentdate
+          INTO @DATA(ls_quarterdetails).
+
+          IF sy-subrc = 0.
+            lv_lastmonth                 = ls_quarterdetails-calendarquarter * 3.
+            lv_lastmonth = |{ lv_lastmonth ALPHA = IN }|.
+            "Prepare the assignment reference
+            DATA(lv_assignmentreference) = ls_accountingdocitems-assignmentreference && lv_lastmonth
+                                           && ls_quarterdetails-calendaryear.
+          ENDIF.
+
+        ELSEIF lv_variant = cv_zor2. "Annual Variant
+          "get the year
+          SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+          FROM i_calendardate WITH PRIVILEGED ACCESS
+          WHERE calendardate = @accountingdocheader-documentdate
+          INTO @ls_quarterdetails.
+
+          IF sy-subrc = 0.
+            "Prepare the assignment reference
+            lv_assignmentreference = ls_accountingdocitems-assignmentreference && cv_lastmonth
+                                     && ls_quarterdetails-calendaryear.
+          ENDIF.
+
+        ELSEIF  lv_variant = cv_zor3. "Monthly Variant
+
+          SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+          FROM i_calendardate WITH PRIVILEGED ACCESS
+          WHERE calendardate = @accountingdocheader-documentdate
+          INTO @ls_quarterdetails.
+
+          IF sy-subrc = 0.
+            lv_lastmonth = ls_quarterdetails-calendarmonth.
+            lv_lastmonth = |{ lv_lastmonth ALPHA = IN }|.
+            "Prepare the assignment reference
+            lv_assignmentreference = ls_accountingdocitems-assignmentreference && ls_quarterdetails-calendarmonth
+                                     && ls_quarterdetails-calendaryear.
+          ENDIF.
+
+        ELSEIF lv_variant = cv_zor4. "Semi-Annual Variant
+
+          SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+          FROM i_calendardate WITH PRIVILEGED ACCESS
+          WHERE calendardate = @accountingdocheader-documentdate
+          INTO @ls_quarterdetails.
+
+          IF sy-subrc = 0.
+            IF ls_quarterdetails-calendarmonth > 6.
+              lv_lastmonth = '12'.
+            ELSEIF  ls_quarterdetails-calendarmonth < 6.
+              lv_lastmonth = '06'.
+            ENDIF.
+            "Prepare the assignment reference
+            lv_assignmentreference = ls_accountingdocitems-assignmentreference && lv_lastmonth
+                                     && ls_quarterdetails-calendaryear.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+    ls_accountingdocitemout-assignmentreference = lv_assignmentreference.
+    substitutiondone                            = abap_true.
+  ENDIF.
+
+
+****To pass the condition contract at GR -- LTA
+**** To pass conditon contract, settlement month and year based on the GR Date -- 17/12/2025
+
+  IF accountingdocheader-accountingdocumenttype = 'WE' AND ls_accountingdocitems-financialaccounttype = 'S'
+   AND ls_accountingdocitems-glaccount = '0065002030'.
+
+    READ TABLE accountingdocitems INTO DATA(ls_turnover) WITH KEY financialaccounttype = 'S'
+                                                                  glaccount = '0021776000'.
+    IF sy-subrc = 0.
+      IF ls_turnover-assignmentreference IS NOT INITIAL.
+        "get the contract variant
+        SELECT SINGLE cndncontrprocvar
+        FROM i_conditioncontract WITH PRIVILEGED ACCESS
+        WHERE conditioncontract = @ls_turnover-assignmentreference
+        INTO @lv_variant.
+
+        IF lv_variant IS NOT INITIAL.
+          IF lv_variant = cv_zor1. "Quarter Variant
+            "get the quarter and month
+            SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+            FROM i_calendardate WITH PRIVILEGED ACCESS
+            WHERE calendardate = @accountingdocheader-documentdate
+            INTO @ls_quarterdetails.
+
+            IF sy-subrc = 0.
+              lv_lastmonth                 = ls_quarterdetails-calendarquarter * 3.
+              lv_lastmonth = |{ lv_lastmonth ALPHA = IN }|.
+              "Prepare the assignment reference
+              lv_assignmentreference = ls_turnover-assignmentreference && lv_lastmonth
+                                             && ls_quarterdetails-calendaryear.
+            ENDIF.
+
+          ELSEIF lv_variant = cv_zor2. "Annual Variant
+            "get the year
+            SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+            FROM i_calendardate WITH PRIVILEGED ACCESS
+            WHERE calendardate = @accountingdocheader-documentdate
+            INTO @ls_quarterdetails.
+
+            IF sy-subrc = 0.
+              "Prepare the assignment reference
+              lv_assignmentreference = ls_turnover-assignmentreference && cv_lastmonth
+                                       && ls_quarterdetails-calendaryear.
+            ENDIF.
+
+          ELSEIF  lv_variant = cv_zor3. "Monthly Variant
+
+            SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+            FROM i_calendardate WITH PRIVILEGED ACCESS
+            WHERE calendardate = @accountingdocheader-documentdate
+            INTO @ls_quarterdetails.
+
+            IF sy-subrc = 0.
+              lv_lastmonth = ls_quarterdetails-calendarmonth.
+              lv_lastmonth = |{ lv_lastmonth ALPHA = IN }|.
+              "Prepare the assignment reference
+              lv_assignmentreference = ls_turnover-assignmentreference && ls_quarterdetails-calendarmonth
+                                       && ls_quarterdetails-calendaryear.
+            ENDIF.
+
+          ELSEIF lv_variant = cv_zor4. "Semi-Annual Variant
+
+            SELECT SINGLE calendarquarter,calendarmonth,calendaryear
+            FROM i_calendardate WITH PRIVILEGED ACCESS
+            WHERE calendardate = @accountingdocheader-documentdate
+            INTO @ls_quarterdetails.
+
+            IF sy-subrc = 0.
+              IF ls_quarterdetails-calendarmonth > 6.
+                lv_lastmonth = '12'.
+              ELSEIF  ls_quarterdetails-calendarmonth < 6.
+                lv_lastmonth = '06'.
+              ENDIF.
+              "Prepare the assignment reference
+              lv_assignmentreference = ls_turnover-assignmentreference && lv_lastmonth
+                                       && ls_quarterdetails-calendaryear.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+      ls_accountingdocitemout-assignmentreference = lv_assignmentreference.
+      substitutiondone                            = abap_true.
+    ENDIF.
+  ENDIF.
+
+  APPEND ls_accountingdocitemout TO accountingdocitemsout.
+ENDLOOP.
