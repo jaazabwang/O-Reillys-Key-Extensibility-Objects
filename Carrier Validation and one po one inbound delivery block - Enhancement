@@ -1,0 +1,80 @@
+SELECT SINGLE carrier,ewmdeliverydocumenttype FROM i_ewm_outbdelivordhdr
+        WITH PRIVILEGED ACCESS
+        WHERE outbounddelivery = @delivery_document_in-deliverydocument
+        INTO @DATA(wa_carrierdata).
+
+IF wa_carrierdata-carrier IS INITIAL AND wa_carrierdata-ewmdeliverydocumenttype EQ 'LF'
+and delivery_document_in-readyforwarehouseexecstatus NE ''. "Added Status Check
+  message-messagetype = 'E'.
+  message-messagetext = 'Carrier is not assigned'.
+
+ENDIF.
+
+"To block Delivery if delivery is created by already used purchase order - not deleted
+
+SELECT SINGLE purchaseorder,purchaseorderitem,deliverydocument,deliverydocumentitem,isdeleted
+  FROM c_posupplierconfirmationdex WITH PRIVILEGED ACCESS
+  WHERE deliverydocument = @delivery_document_in-deliverydocument
+  INTO @DATA(ls_delivery).
+
+IF sy-subrc = 0.
+  DATA(lv_data) = 'Cleared'.
+ELSE.
+  IF delivery_document_in-deliverydocumenttype = 'EL'.
+    SELECT purchaseorder,purchaseorderitem,deliverydocument,deliverydocumentitem
+    FROM c_posupplierconfirmationdex WITH PRIVILEGED ACCESS
+    FOR ALL ENTRIES IN @delivery_document_items_in
+    WHERE purchaseorder = @delivery_document_items_in-referencesddocument
+    INTO TABLE @DATA(lt_inbound_del_data).
+
+    IF sy-subrc = 0.
+      SELECT inbounddelivery,deletionindicator
+      FROM i_inbounddelivery WITH PRIVILEGED ACCESS
+      FOR ALL ENTRIES IN @lt_inbound_del_data
+      WHERE inbounddelivery = @lt_inbound_del_data-deliverydocument
+      AND  deletionindicator NE 'X'
+      INTO TABLE @DATA(lt_deleted).
+
+      IF sy-subrc = 0.
+        LOOP AT lt_inbound_del_data INTO DATA(ls_inbound_del_data).
+          READ TABLE delivery_document_items_in INTO DATA(ls_delivery_document_items) WITH KEY referencesddocument = ls_inbound_del_data-purchaseorder referencesddocumentitem = ls_inbound_del_data-purchaseorderitem.
+          IF sy-subrc = 0.
+            message-messagetype = 'E'.
+            message-messagetext = |Delivery has been already created by the purchase order | && ls_delivery_document_items-referencesddocument.
+            EXIT.
+          ENDIF.
+        ENDLOOP.
+      ELSE.
+        DATA(lv_msg) = 'Deleted'.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+ENDIF.
+*ENDIF.
+*ELSE.
+
+*  SELECT SINGLE purchaseorder,purchaseorderitem,deliverydocument,deliverydocumentitem,isdeleted
+*      FROM c_posupplierconfirmationdex WITH PRIVILEGED ACCESS
+*      WHERE deliverydocument = @delivery_document_in-deliverydocument
+*      INTO @DATA(ls_delivery1).
+*
+*  IF sy-subrc = 0.
+*    DATA(lv_) = 'Cleared'.
+*  ELSE.
+*    IF delivery_document_in-deliverydocumenttype = 'EL'.
+*      SELECT purchaseorder,purchaseorderitem,deliverydocument,deliverydocumentitem
+*      FROM c_posupplierconfirmationdex WITH PRIVILEGED ACCESS
+*      INTO TABLE @DATA(lt_inbound_del_data1).
+*
+*      IF sy-subrc = 0.
+*        LOOP AT lt_inbound_del_data1 INTO DATA(ls_inbound_del_data1).
+*          READ TABLE delivery_document_items_in INTO DATA(ls_delivery_document_items1) WITH KEY referencesddocument = ls_inbound_del_data-purchaseorder referencesddocumentitem = ls_inbound_del_data-purchaseorderitem.
+*          IF sy-subrc = 0.
+*            message-messagetype = 'E'.
+*            message-messagetext = |Delivery has been already created by the purchase order | && ls_delivery_document_items-referencesddocument.
+*          ENDIF.
+*        ENDLOOP.
+*      ENDIF.
+*    ENDIF.
+*  ENDIF.
+*ENDIF.
