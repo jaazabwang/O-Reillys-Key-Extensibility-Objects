@@ -1,0 +1,33 @@
+*   Mandatory step for all implementations:
+*   Copy the importing parameters to the changing parameters.
+MOVE-CORRESPONDING bil_doc            TO bil_doc_res.
+MOVE-CORRESPONDING bil_doc_item       TO bil_doc_item_res.
+MOVE-CORRESPONDING bil_doc_item_contr TO bil_doc_item_contr_res.
+
+bil_doc_item_res-yy1_batchnumber_bdi = bil_doc_item-batch.
+
+CONCATENATE bil_doc_item-referencesddocument bil_doc_item-materialgroup INTO DATA(lv_split).
+
+" To pass the materialgroup into custom field if material group is 003 or 005
+IF bil_doc_item-materialgroup = '003' OR bil_doc_item-materialgroup = '005'.
+  bil_doc_res-yy1_zmaterialgroup_bdh        = bil_doc_item-materialgroup.
+  bil_doc_res-billingdoccombinationcriteria = lv_split.
+ENDIF.
+
+"To split the invoices based on the customers 390 and 450.  --- JW: 27/05/2025
+IF bil_doc-soldtoparty = '0000000390' OR bil_doc-soldtoparty = '0000000450'.
+  bil_doc_res-billingdoccombinationcriteria = lv_split.
+ENDIF.
+
+
+****** To pass the custom unit price calculated while creating sales document
+SELECT SINGLE *
+FROM i_salesdocumentitem WITH PRIVILEGED ACCESS
+WHERE salesdocument = @bil_doc_item-salesdocument
+AND   material      = @bil_doc_item-material
+INTO @DATA(ls_data).
+
+IF sy-subrc = 0.
+  bil_doc_item_res-yy1_customunitprice_bdi = ls_data-yy1_customunitprice_sdi.
+ENDIF.
+
