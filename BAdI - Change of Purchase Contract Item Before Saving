@@ -1,0 +1,33 @@
+select a~sizeordimensiontext, b~quantitynumerator , b~alternativeunit, b~Quantitydenominator , b~baseunit
+from i_product with privileged access as a
+inner join i_productunitsofmeasure  with privileged access as b
+on  a~product =  b~product
+where a~product = @purchasecontractitem-material
+and b~alternativeunit = 'PAK'
+into table @data(lt_data).
+
+
+
+IF lt_data IS NOT INITIAL.
+READ TABLE lt_data INTO DATA(ls_data)  index 1.
+IF SY-SUBRC = 0.
+ data(lv_alternativeunit) = LS_DATA-alternativeunit.
+ if lv_alternativeunit eq 'PAK'.
+ DATA(lv_alternativeunit_final) = 'PAC'.
+ endif.
+ DATA(LV_BASEUNIT) = LS_DATA-baseunit.
+ IF LV_BASEUNIT EQ 'CS'.
+ DATA(LV_BASEUNIT_FINAL) = 'CV'.
+ ENDIF.
+
+  data lv_quantitydenominator type string.
+    lv_quantitydenominator = ls_data-quantitydenominator.
+ data lv_quantitynumerator type string.
+     lv_quantitynumerator = ls_data-quantitynumerator.
+
+ "CONCATENATE lv_quantitydenominator  lv_alternativeunit_final ' ' '=' ' ' lv_baseunit_final lv_quantitynumerator into data(lv_unitconv) .
+ DATA(lv_unitconv) = lv_quantitydenominator && '/' &&  lv_quantitynumerator .
+purchasecontractitemchange-yy1_unitconversion_pdi = lv_unitconv. "ls_data-quantitynumerator.
+purchasecontractitemchange-yy1_size_pdi = ls_data-sizeordimensiontext.
+ENDIF.
+ENDIF.
