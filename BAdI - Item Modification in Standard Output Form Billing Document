@@ -1,0 +1,300 @@
+billingdocitem_ext_out      = billingdocitem_ext_in.
+billingdocitemdescr_ext_out = billingdocitemdescr_ext_in.
+
+DATA lv_pack              TYPE string.
+DATA lv_sp                TYPE string.
+DATA lv_por               TYPE p DECIMALS 6.
+DATA lv_por_final         TYPE p DECIMALS 2.
+DATA lv_vat               TYPE string.
+DATA lv_taxcode           TYPE c LENGTH 2.
+DATA lv_rate              TYPE p DECIMALS 2.
+DATA lv_size              TYPE i.
+DATA lv_deposit_sum_1     TYPE i.
+DATA lv_deposit_sum_1_drs TYPE p DECIMALS 2.
+DATA lv_deposit_sum_2_drs TYPE p DECIMALS 2.
+DATA lv_deposit_sum_2     TYPE i.
+DATA lv_decsize           TYPE p DECIMALS 1.
+DATA lv_drs_2             TYPE p  DECIMALS 2.
+DATA lv_drs_1             TYPE p  DECIMALS 2.
+DATA lv_taxrate           TYPE p DECIMALS 2.
+DATA lv_cl                TYPE p DECIMALS 2.
+
+CONSTANTS cv_ttx1 TYPE string VALUE 'TTX1'.
+CONSTANTS cv_zrrp TYPE string VALUE 'ZRRP'.
+CONSTANTS cv_zprp TYPE string VALUE 'ZPRP'.
+
+***** JW: To pass the Sales Document Item Category in custom Field as the standard value is not present in the XML. 23/07/25
+billingdocitem_ext_out-yy1_itemcategory_bdi = billingdocitem-salesdocumentitemcategory.
+
+**** JW: To pass the Outbound delivery date in the Invoice Date --- Sales Invoice Form 07/05/2025
+
+"to get the outbound delivery date
+SELECT SINGLE *
+FROM i_outbounddelivery WITH PRIVILEGED ACCESS
+WHERE outbounddelivery = @billingdocitem-referencesddocument
+INTO @DATA(ls_outbounddelivery).
+
+IF sy-subrc = 0.
+  IF billingdocitem_ext_out-yy1_obdeliverydate_bdi IS INITIAL.
+    billingdocitem_ext_out-yy1_obdeliverydate_bdi = ls_outbounddelivery-deliverydate.
+  ENDIF.
+ENDIF.
+
+"to supply the required quantity in sup Qty field in form
+SELECT SINGLE *
+FROM i_outbounddeliveryitem WITH PRIVILEGED ACCESS
+WHERE outbounddelivery     = @billingdocitem-referencesddocument
+AND   outbounddeliveryitem = @billingdocitem-referencesddocumentitem
+INTO @DATA(ls_delivery).
+
+IF sy-subrc = 0.
+  SELECT SINGLE *
+  FROM i_salesdocumentitem WITH PRIVILEGED ACCESS
+  WHERE salesdocument     = @ls_delivery-referencesddocument
+  AND   salesdocumentitem = @ls_delivery-referencesddocumentitem
+  INTO @DATA(ls_orderquantity).
+  IF sy-subrc = 0.
+    "to pass the order quantity in the Ord QTY col -- Invoice Form 16/05/2025
+    IF billingdocitem_ext_out-yy1_supqtybillingform_bdi IS INITIAL.
+      billingdocitem_ext_out-yy1_supqtybillingform_bdi = ls_orderquantity-orderquantity.
+    ENDIF.
+  ENDIF.
+ENDIF.
+
+*to get the material size and alternative UOM
+
+SELECT SINGLE *
+FROM i_product WITH PRIVILEGED ACCESS
+WHERE product = @billingdocitem-product
+INTO @DATA(ls_product).
+
+IF sy-subrc = 0.
+  billingdocitem_ext_out-yy1_size1_bdi         = ls_product-sizeordimensiontext.
+  billingdocitem_ext_out-yy1_suppliercode1_bdi = ls_product-productstandardid.
+  billingdocitem_ext_out-yy1_billdiscntgrp_bdi = ls_product-yy1_discountgroup_prd.
+ENDIF.
+
+****To calculate drs levy and drs value based on customer country
+SELECT SINGLE a~customer,a~country,b~iseuropeanunionmember
+FROM i_customer WITH PRIVILEGED ACCESS AS a
+INNER JOIN i_country AS b
+ON b~country = a~country
+WHERE customer  = @billingdoc-soldtoparty
+AND   b~country = 'IE'
+INTO @DATA(ls_customereumember).
+
+IF sy-subrc = 0.
+  billingdocitem_ext_out-yy1_drslevy_bdi = ls_product-yy1_drslevys_prd.
+  billingdocitem_ext_out-yy1_drsvalue_bdi = ls_product-yy1_drsunits_prd * ls_product-yy1_drslevys_prd * billingdocitem-billingquantity.
+ELSE.
+  billingdocitem_ext_out-yy1_drslevy_bdi = ' '.
+  billingdocitem_ext_out-yy1_drsvalue_bdi = ' '.
+ENDIF.
+
+*to get the alternative UOM
+SELECT alternativeunit,quantitynumerator,quantitydenominator,baseunit
+FROM i_productunitsofmeasure WITH PRIVILEGED ACCESS
+WHERE product = @billingdocitem-product
+INTO TABLE @DATA(lt_unit).
+
+IF sy-subrc = 0.
+  " To get pack value.
+  LOOP AT lt_unit INTO DATA(ls_unit) WHERE alternativeunit = 'PAK'.
+    billingdocitem_ext_out-yy1_pack_bdi = ls_unit-quantitydenominator.
+  ENDLOOP.
+  " to get CAN VALUE.
+  LOOP AT lt_unit INTO ls_unit WHERE alternativeunit = 'KAN'.
+    billingdocitem_ext_out-yy1_can_bdi = ls_unit-quantitydenominator.
+  ENDLOOP.
+ENDIF.
+
+*to get the sales representative
+SELECT SINGLE *
+FROM i_billingdocument WITH PRIVILEGED ACCESS
+WHERE billingdocument = @billingdoc-billingdocument
+INTO @DATA(ls_rp).
+
+IF sy-subrc = 0.
+  billingdocitem_ext_out-yy1_salerepresentative_bdi = ls_rp-yy1_salesreprsntative_bdh.
+ENDIF.
+
+"TO GET TAX PERCENTAGE BASED ON CONDITION TYPE TTX1
+SELECT SINGLE *
+FROM i_billingdocitemprcgelmntbasic WITH PRIVILEGED ACCESS
+WHERE billingdocument     = @billingdocitem-billingdocument
+AND   billingdocumentitem = @billingdocitem-billingdocumentitem "JW: Added item condition -- 08/05/2025
+AND conditiontype         = @cv_ttx1
+INTO @DATA(ls_vatprcnt).
+
+IF sy-subrc = 0.
+  lv_vat     = ls_vatprcnt-conditionratevalue.
+  lv_taxrate = ls_vatprcnt-conditionratevalue / 100.
+
+  billingdocitem_ext_out-yy1_taxrate_bdi = lv_taxrate.
+
+  CONDENSE billingdocitem_ext_out-yy1_taxrate_bdi.
+  lv_taxcode = ls_vatprcnt-taxcode.
+  IF billingdocitem_ext_out-yy1_taxcode_bdi IS INITIAL.
+    billingdocitem_ext_out-yy1_taxcode_bdi = ls_vatprcnt-taxcode.
+  ENDIF.
+ENDIF.
+
+**** To check if ZPRP exists then consider the ZPRP value else consider the ZRRP value 12/05/2025
+"To get the value of ZPRP condition Type
+SELECT SINGLE *
+FROM i_billingdocitemprcgelmntbasic WITH PRIVILEGED ACCESS
+WHERE billingdocument     = @billingdocitem-billingdocument
+AND   billingdocumentitem = @billingdocitem-billingdocumentitem  "JW: Added item condition -- 08/05/2025
+AND   conditiontype       = @cv_zprp
+INTO @DATA(ls_prp).
+
+IF sy-subrc = 0.
+  lv_rate = ls_prp-conditionratevalue.
+ELSE.
+  "To get the value of ZRRP condition Type
+  SELECT SINGLE *
+  FROM i_billingdocitemprcgelmntbasic WITH PRIVILEGED ACCESS
+  WHERE billingdocument     = @billingdocitem-billingdocument
+  AND   billingdocumentitem = @billingdocitem-billingdocumentitem  "JW: Added item condition -- 08/05/2025
+  AND   conditiontype       = @cv_zrrp
+  INTO @DATA(ls_rrp).
+  IF sy-subrc = 0.
+    lv_rate = ls_rrp-conditionratevalue.
+  ENDIF.
+ENDIF.
+
+IF billingdocitem_ext_out-yy1_conditionvalue_bdi IS INITIAL.
+  billingdocitem_ext_out-yy1_conditionvalue_bdi = lv_rate.
+ENDIF.
+
+
+"Net Amount
+*lv_sp = billingdocitem-netamount.
+** to get the each quantity amount
+*lv_sp = billingdocitem-netamount / billingdocitem-billingquantity.
+"TO PICK SUBTOTAL VALUE --- 15/05/2025
+lv_sp = billingdocitem-subtotal1amount / billingdocitem-billingquantity.
+CONDENSE lv_sp.
+IF lv_sp IS INITIAL.
+  lv_sp = 1.
+ENDIF.
+"Pack
+lv_pack = billingdocitem_ext_out-yy1_pack_bdi.
+CONDENSE lv_pack.
+IF lv_pack IS INITIAL.
+  lv_pack = 1.
+ENDIF.
+
+** JW: TO assign VAT as per the Tax Codes -- 12/05/2025
+IF lv_taxcode = 'A0' OR lv_taxcode = 'A2' OR lv_taxcode = 'A3' OR lv_taxcode = 'A9'.
+  lv_vat = '1'.
+ELSEIF lv_taxcode = 'A5'.
+  lv_vat = '1.135'.
+ELSEIF lv_taxcode = 'A6'.
+  lv_vat = '5'.
+ELSEIF lv_taxcode = 'A1' AND billingdoc-companycode = 'UK01'.
+  lv_vat = '1.20'.
+  billingdocitem_ext_out-yy1_taxrate_bdi = '0.20'.
+ELSEIF lv_taxcode = 'A1' AND billingdoc-companycode = 'IE01'.
+  billingdocitem_ext_out-yy1_taxrate_bdi = '0.23'.
+  lv_vat = '1.23'.
+ENDIF.
+
+"To calculate POR *=(((pack*rrp/vat)-sell price)/(pack*rrp/vat))
+"POR will be zero if ( billing quantity )Sup Qty is Zero -- 16/05/2025
+IF billingdocitem-billingquantity <> 0.
+  lv_por = ( ( ( lv_pack * lv_rate / lv_vat ) - lv_sp ) / ( lv_pack * lv_rate / lv_vat ) ) * 100.
+  lv_por_final = trunc( lv_por * 100 ) / 100.
+  IF lv_por < 0.
+    lv_por = lv_por * -1.
+  ENDIF.
+ELSE.
+  lv_por = 0.
+ENDIF.
+billingdocitem_ext_out-yy1_por_bdi = lv_por_final.
+CONDENSE billingdocitem_ext_out-yy1_por_bdi.
+
+**** to check the condition types and pass P to display on line items as *P* Promotional Applicable
+SELECT SINGLE billingdocumentitem,conditiontype
+FROM i_billingdocitemprcgelmntbasic WITH PRIVILEGED ACCESS
+WHERE billingdocument     = @billingdocitem-billingdocument
+AND   billingdocumentitem = @billingdocitem-billingdocumentitem
+AND ( conditiontype = 'ZPRM' ) "OR conditiontype = 'ZDS1' "JW:To only consider ZPRM condition -- 20/05/2025
+*    OR conditiontype = 'ZDS2' OR conditiontype = 'ZDS3'
+*    OR conditiontype = 'ZDS4' OR conditiontype = 'ZDS5'
+*    OR conditiontype = 'ZDS6' OR conditiontype = 'ZDS7'
+*    OR conditiontype = 'ZCON' )
+INTO @DATA(ls_itemconditions).
+
+IF billingdocitem-billingquantity <> 0.
+  IF ls_itemconditions IS NOT INITIAL.
+    billingdocitem_ext_out-yy1_promotionapplcbl_bdi = '*P*'.
+  ELSE.
+    billingdocitem_ext_out-yy1_promotionapplcbl_bdi = '*N*'.
+  ENDIF.
+ELSE.
+  billingdocitem_ext_out-yy1_promotionapplcbl_bdi = '*O/S*'.
+ENDIF.
+*  ENDLOOP.
+*ENDIF.
+
+
+"Return Deposit Table Logic
+SELECT a~billingdocument,a~billingdocumentitem,a~product,a~billingquantity,
+b~yy1_drslevys_prd,b~yy1_drsunits_prd,b~sizeordimensiontext
+FROM i_billingdocumentitem WITH PRIVILEGED ACCESS AS a
+INNER JOIN i_product WITH PRIVILEGED ACCESS AS b
+ON b~product = a~product
+WHERE a~billingdocument = @billingdocitem-billingdocument
+INTO TABLE @DATA(lt_returndeposit).
+
+
+*LOOP AT lt_returndeposit INTO DATA(ls_returndeposit).
+*  DATA(lv_sizetext) = ls_returndeposit-sizeordimensiontext.
+*  IF lv_sizetext CS 'CL'.
+*    REPLACE ALL OCCURRENCES OF 'CL' IN lv_sizetext WITH ''.
+*    lv_cl   = lv_sizetext.
+*    lv_size = lv_cl * 10. "CONVERSION TO ML
+*  ELSEIF lv_sizetext CS 'ML'.
+*    REPLACE ALL OCCURRENCES OF 'ML' IN lv_sizetext WITH ''.
+*    lv_size = lv_sizetext.
+*    IF lv_size >= 150 AND lv_size <= 500.
+*      "DRS units
+*      lv_deposit_sum_1     = lv_deposit_sum_1 + ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-billingquantity.
+*      lv_drs_1             = ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-yy1_drslevys_prd * ls_returndeposit-billingquantity.
+*      lv_deposit_sum_1_drs = lv_deposit_sum_1_drs + lv_drs_1.
+*      "above 500 ML
+*    ELSE.
+*      lv_deposit_sum_2     = lv_deposit_sum_2 + ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-billingquantity.
+*      lv_drs_2             = ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-yy1_drslevys_prd * ls_returndeposit-billingquantity.
+*      lv_deposit_sum_2_drs = lv_deposit_sum_2_drs + lv_drs_2.
+*    ENDIF.
+*  ELSEIF ls_returndeposit-sizeordimensiontext CS 'LT'.
+*    REPLACE ALL OCCURRENCES OF 'LT' IN lv_sizetext WITH ''.
+*    lv_decsize = lv_sizetext.
+*    lv_deposit_sum_2     = lv_deposit_sum_2 + ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-billingquantity.
+*    lv_drs_2             = ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-yy1_drslevys_prd * ls_returndeposit-billingquantity.
+*    lv_deposit_sum_2_drs = lv_deposit_sum_2_drs + lv_drs_2.
+*  ENDIF.
+*ENDLOOP.
+
+****Calculate deposits based on the drs levys units
+LOOP AT lt_returndeposit INTO DATA(ls_returndeposit).
+  IF ls_returndeposit-yy1_drslevys_prd = '0.15'.
+    lv_deposit_sum_1     = lv_deposit_sum_1 + ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-billingquantity.
+    lv_drs_1             = ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-yy1_drslevys_prd * ls_returndeposit-billingquantity.
+    lv_deposit_sum_1_drs = lv_deposit_sum_1_drs + lv_drs_1.
+  ELSEIF ls_returndeposit-yy1_drslevys_prd = '0.25'.
+    lv_deposit_sum_2     = lv_deposit_sum_2 + ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-billingquantity.
+    lv_drs_2             = ls_returndeposit-yy1_drsunits_prd * ls_returndeposit-yy1_drslevys_prd * ls_returndeposit-billingquantity.
+    lv_deposit_sum_2_drs = lv_deposit_sum_2_drs + lv_drs_2.
+  ENDIF.
+ENDLOOP.
+**** Only applicable for IE Customers
+IF ls_customereumember-country = 'IE'.
+  billingdocitem_ext_out-yy1_drsunitstotal150_bdi   = lv_deposit_sum_1.
+  billingdocitem_ext_out-yy1_drsdeposittotal150_bdi = lv_deposit_sum_1_drs.
+  billingdocitem_ext_out-yy1_drsunitstotal500_bdi   = lv_deposit_sum_2.
+  billingdocitem_ext_out-yy1_drsdeposittotal500_bdi = lv_deposit_sum_2_drs.
+  CONDENSE billingdocitem_ext_out-yy1_drsdeposittotal500_bdi.
+ENDIF.
