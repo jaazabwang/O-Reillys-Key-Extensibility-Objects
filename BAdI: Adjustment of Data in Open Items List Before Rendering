@@ -1,0 +1,45 @@
+
+" TO PASS SALES REPRESENTATIVE TO CUSTOM FIELD
+
+SELECT SINGLE YY1_SALESREP_BUS
+FROM i_businesspartner
+into @data(ls_partner)
+where BusinessPartner =  @IS_CORR_REQUEST-account.
+
+if sy-subrc = 0.
+ CS_OPEN_ITEMS_LIST-CUSTOMFIELD = ls_partner.
+endif.
+
+
+" TO PASS payment terms TO CUSTOM FIELD
+if IS_CORR_REQUEST-account_type = 'D'.
+SELECT single a~customer, b~paymentterms, b~paymenttermsconditiondesc , b~language
+FROM i_customercompany with PRIVILEGED ACCESS as a
+inner join  i_paymenttermsconditionstext  with PRIVILEGED ACCESS as b
+on a~paymentterms = b~paymentterms
+where a~customer =  @IS_CORR_REQUEST-account "or a~supplier = @IS_CORR_REQUEST-account
+and b~language = @CS_OPEN_ITEMS_LIST-language
+into @data(ls_paymentterm).
+
+if sy-subrc = 0.
+CS_OPEN_ITEMS_LIST-contactnode[ 1 ]-username = ls_paymentterm-paymentterms.
+CS_OPEN_ITEMS_LIST-contactnode[ 1 ]-countrynameinsenderlanguage = ls_paymentterm-paymenttermsconditiondesc.
+endif.
+ENDIF.
+
+
+IF IS_CORR_REQUEST-account_type = 'K'.
+SELECT single a~supplier, b~paymentterms, b~paymenttermsconditiondesc , b~language
+FROM i_suppliercompany with PRIVILEGED ACCESS as a
+inner join  i_paymenttermsconditionstext  with PRIVILEGED ACCESS as b
+on a~paymentterms = b~paymentterms
+where  a~supplier = @IS_CORR_REQUEST-account
+and b~language = @CS_OPEN_ITEMS_LIST-language
+into @data(ls_paymenttermsup).
+
+if sy-subrc = 0.
+CS_OPEN_ITEMS_LIST-contactnode[ 1 ]-username = ls_paymenttermsup-paymentterms.
+CS_OPEN_ITEMS_LIST-contactnode[ 1 ]-countrynameinsenderlanguage = ls_paymenttermsup-paymenttermsconditiondesc.
+endif.
+endif.
+
