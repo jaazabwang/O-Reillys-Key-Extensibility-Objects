@@ -1,0 +1,99 @@
+DATA: ls_message TYPE tds_bd_sls_message.
+
+CONSTANTS : cv_text1 TYPE string VALUE 'This material',
+            cv_text2 TYPE string VALUE 'cannot be sold to customer'.
+
+SELECT SINGLE businesspartner,yy1_restriction1_bus,yy1_restriction2_bus,
+yy1_restriction3_bus,yy1_restriction4_bus,yy1_restriction5_bus,yy1_pricemarkedproduct_bus,"yy1_trackntrace_bus,
+yy1_trackandtrace_bus,yy1_fid_bus
+FROM i_businesspartner WITH PRIVILEGED ACCESS
+WHERE businesspartner = @salesdocument-soldtoparty
+INTO @DATA(ls_customer).
+
+IF sy-subrc = 0.
+  DATA(lv_customer) = ls_customer-businesspartner.
+ENDIF.
+IF lv_customer NE 'ICIE01'. "JW: To suppress all the errors when customer is ICIE01 30/04/2025
+  "To get the product details
+  SELECT product,yy1_restrictions_prd,yy1_pricedmarkedproduc_prd,productgroup,yy1_classification_prd
+  FROM i_product WITH PRIVILEGED ACCESS
+  FOR ALL ENTRIES IN @salesdocumentitems
+  WHERE product = @salesdocumentitems-material
+  INTO TABLE @DATA(lt_product).
+
+  IF sy-subrc = 0.
+    LOOP AT lt_product INTO DATA(ls_product).
+      DATA(lv_product) = ls_product-product.
+      "If the product restriction is initial then surpass the restrictions error
+      IF ls_product-yy1_restrictions_prd IS NOT INITIAL.
+        "If all the customer restrictions are initial then surpass the restrictions error 24/04/2025
+        IF ls_customer-yy1_restriction1_bus IS NOT INITIAL OR ls_customer-yy1_restriction2_bus IS NOT INITIAL OR
+        ls_customer-yy1_restriction3_bus IS NOT INITIAL OR ls_customer-yy1_restriction4_bus IS NOT INITIAL
+        OR ls_customer-yy1_restriction5_bus IS NOT INITIAL.
+          "To raise an error if any one of the condition does not matches
+          READ TABLE salesdocumentitems INTO DATA(ls_items) WITH KEY material = ls_product-product.
+          IF  sy-subrc = 0.
+            IF lv_customer NE 'ICIE01'."JW: to surpass the restrictions error if customer is ICIE01 22/04/2025
+              IF ls_product-yy1_restrictions_prd NE '0'. "JW :To surpass the restriction checks if the product restriction is 0(None) 27/01/25
+                IF ls_product-yy1_restrictions_prd NE ls_customer-yy1_restriction1_bus
+                    AND ls_product-yy1_restrictions_prd NE ls_customer-yy1_restriction2_bus
+                    AND ls_product-yy1_restrictions_prd NE ls_customer-yy1_restriction3_bus
+                    AND ls_product-yy1_restrictions_prd NE ls_customer-yy1_restriction4_bus
+                    AND ls_product-yy1_restrictions_prd NE ls_customer-yy1_restriction5_bus.
+                  ls_message-messagetype = 'E'.
+                  ls_message-messagetext = ls_items-salesdocumentitem && | : | && | | && cv_text1 && | | && lv_product && | | && cv_text2 && | | && lv_customer.
+                  APPEND ls_message TO messages.
+                ENDIF.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+      " to raise error if Price Marked Product is X in Product Master and Customer is Blank
+      IF ls_product-yy1_pricedmarkedproduc_prd = 'X' AND ls_customer-yy1_pricemarkedproduct_bus IS INITIAL.
+        ls_message-messagetype = 'E'.
+        ls_message-messagetext = 'Price Marked Products are not allowed'.
+        APPEND ls_message TO messages.
+      ENDIF.
+      "To raise error is Track and Trace is Blank and Product Group is Cigg
+*      IF ( ls_product-productgroup = '003' AND ls_customer-yy1_trackandtrace_bus = ' ' AND ls_product-yy1_classification_prd = 'T' )
+*      OR ( ls_product-productgroup = '003' AND ls_customer-yy1_trackandtrace_bus IS NOT INITIAL AND ls_product-yy1_classification_prd = ' '  ).
+*        ls_message-messagetype = 'E'.
+*        ls_message-messagetext = 'Tobacco product cannot be sold to this customer'.
+*        APPEND ls_message TO messages.
+*      ENDIF.
+******** JW: To Raise error for tobaccpo products --- Logic Change 24/06/2025
+      IF ls_product-productgroup = '003' AND ls_customer-yy1_trackandtrace_bus IS INITIAL
+      AND ls_customer-yy1_fid_bus IS INITIAL AND ls_product-yy1_classification_prd = 'T'.
+        ls_message-messagetype = 'E'.
+        ls_message-messagetext = 'Tobacco product cannot be sold to this customer'.
+        APPEND ls_message TO messages.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+ENDIF.
+
+
+
+********To raise an error if duplicate product is found******************
+LOOP AT salesdocumentitems INTO DATA(ls_item).
+  READ TABLE salesdocumentitems WITH KEY material = ls_item-material TRANSPORTING NO FIELDS.
+  IF sy-subrc = 0.
+    LOOP AT salesdocumentitems INTO DATA(ls_check) WHERE material = ls_item-material.
+      IF ls_check-salesdocumentitem <> ls_item-salesdocumentitem.
+        ls_message-messagetype = 'E'.
+        ls_message-messagetext = |Duplicate product| && ls_item-material && | found|.
+        APPEND ls_message TO messages.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+ENDLOOP.
+***************************************************************************
+
+************ JW: To raise error when Credit Stock field is initial  -- 23/06/2025 **********
+
+IF salesdocument_extension-yy1_creditstock_sdh IS INITIAL.
+  ls_message-messagetype = 'E'.
+  ls_message-messagetext  = |Please fill the Credit Stock field|.
+ENDIF.
