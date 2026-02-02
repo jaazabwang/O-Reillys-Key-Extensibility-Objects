@@ -1,0 +1,50 @@
+MOVE-CORRESPONDING accountingdocitem TO accountingdocitemout.
+
+** Intercompany Advanced Sales
+*** To pass the 3rd party sales order number in the reference field of accounting document of intercompany billing document
+IF accountingdocheader-accountingdocumenttype = 'RV' AND accountingdocitem-financialaccounttype = 'S'.
+
+  "TO VERIFY THE CUSTOMER IS ICIE01
+  SELECT SINGLE *
+  FROM i_salesdocument WITH PRIVILEGED ACCESS
+  WHERE salesdocument = @accountingdocitem-salesdocument
+  INTO @DATA(ls_customer_check).
+
+  IF ls_customer_check-soldtoparty = 'ICIE01'.
+*    "to get the purchase order of intercompany sales document
+    SELECT SINGLE purchaseorderbycustomer
+    FROM i_salesdocumentitem WITH PRIVILEGED ACCESS
+    WHERE salesdocument = @accountingdocitem-salesdocument
+    INTO @DATA(lv_purchaseorder).
+
+    IF sy-subrc = 0.
+*      "to get the outbound del by passing the intercompany purchase order
+      SELECT SINGLE documentreferenceid
+      FROM i_purchaseorderhistoryapi01 WITH PRIVILEGED ACCESS
+      WHERE purchaseorder = @lv_purchaseorder
+      INTO @DATA(lv_outbounddel).
+*
+      IF sy-subrc = 0.
+*        "to get the 3rd party sales order by passing the outbound del
+        SELECT SINGLE deliverydocumentbysupplier
+        FROM i_outbounddelivery WITH PRIVILEGED ACCESS
+        WHERE outbounddelivery = @lv_outbounddel
+        INTO @DATA(lv_salesdoc).
+*
+        IF sy-subrc = 0.
+          accountingdocitemout-assignmentreference = lv_salesdoc.
+          substitutiondone = 'X'.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+ENDIF.
+
+******* Update the Sales G/L by purchase order and line item
+IF accountingdocheader-accountingdocumenttype = 'RV' AND accountingdocitem-financialaccounttype = 'S' AND
+   accountingdocitem-glaccount = '0041001500'.
+  IF accountingdocitem-purchasingdocument IS NOT INITIAL AND accountingdocitem-purchasingdocumentitem IS NOT INITIAL.
+    accountingdocitemout-assignmentreference = accountingdocitem-purchasingdocument && accountingdocitem-purchasingdocumentitem.
+    substitutiondone                          = abap_true.
+  ENDIF.
+ENDIF.
