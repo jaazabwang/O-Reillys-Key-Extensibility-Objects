@@ -1,0 +1,9 @@
+CONSTANTS cv_taxdepcntry TYPE string VALUE 'IE'.
+salesdocument_tax_out = salesdocument_tax_in.
+
+"To pass the tax departure country as IE if the sales organization and plant are different
+IF salesdocument-yy1_plant_sdh IS NOT INITIAL.
+  IF salesdocument-yy1_plant_sdh NE salesdocument-salesorganization.
+    salesdocument_tax_out-taxdeparturecountry = cv_taxdepcntry.
+  ENDIF.
+ENDIF.
