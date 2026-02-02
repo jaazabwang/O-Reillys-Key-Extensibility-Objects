@@ -1,0 +1,462 @@
+ 
+
+
+
+​*Data Types
+TYPES: BEGIN OF ty_contracts,
+         companycode                    TYPE bukrs,
+         accountingdoucment             TYPE c LENGTH 10,
+         accountingdocumentcreationdate TYPE d,
+         accountingdocumenttype         TYPE c LENGTH 2,
+         assignmentreference            TYPE c LENGTH 10,
+         amountintransactioncurrency    TYPE p LENGTH 13 DECIMALS 2,
+         originalreferencedocument      TYPE c LENGTH 10,
+       END OF ty_contracts.
+TYPES: BEGIN OF ty_finalcontracts,
+         contract       TYPE c LENGTH 10,
+         contractamount TYPE p LENGTH 13 DECIMALS 2,
+         reference      TYPE c LENGTH 10,
+       END OF ty_finalcontracts.
+
+
+DATA: ls_contracts     TYPE ty_contracts,
+      lt_contracts     TYPE TABLE OF ty_contracts,
+      ls_finalcontract TYPE ty_finalcontracts,
+      lt_finalcontract TYPE TABLE OF ty_finalcontracts.
+
+" TO PASS SALES REPRESENTATIVE TO CUSTOM FIELD
+
+SELECT SINGLE yy1_salesrep_bus
+         FROM i_businesspartner WITH PRIVILEGED ACCESS AS a
+         WHERE businesspartner =  @is_corr_request-account
+         INTO @DATA(ls_partner).
+
+IF sy-subrc = 0.
+  cs_account_statement-customfield = ls_partner.
+ENDIF.
+
+""added by Tejaswi on 28/1/2025.
+SELECT SINGLE FROM i_buspartaddress WITH PRIVILEGED ACCESS AS a
+INNER JOIN i_addrcurdefaultemailaddress WITH PRIVILEGED ACCESS AS b
+ON a~addressid = b~addressid
+FIELDS b~emailaddress
+WHERE  a~businesspartner = @is_corr_request-account
+INTO @DATA(lv_mail).
+
+IF sy-subrc = 0.
+  cs_account_statement-custommessage = lv_mail.
+ENDIF.
+
+** To display as one line item when date  document number and company code are same***
+** Copying the data
+*DATA(lt_lineitems) = cs_account_statement-lineitemnode.
+
+"get the records with the initial clearing entry
+"loop at all the line items and get the duplicate records
+"when the record with clearing entry is found hide it and
+"calculte sum of those of amount column and display the amount against which the clearing entry
+"is not present in the O/s bal
+
+DATA: lv_index_match TYPE sy-tabix.
+
+*LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_item>).
+*  " Only process cleared entries
+*  IF <fs_item>-financialaccounttype NE 'DA'.
+*    IF <fs_item>-clearingaccountingdocument IS NOT INITIAL.
+*
+*      " Search for a matching UNCLEARED entry
+*      LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_match>)
+*           WHERE clearingaccountingdocument IS INITIAL
+*             AND companycode = <fs_item>-companycode
+*             AND documentdate = <fs_item>-documentdate
+*             AND accountingdocument = <fs_item>-accountingdocument.
+*
+*        <fs_item>-amountintransactioncurrency = <fs_item>-amountintransactioncurrency + <fs_match>-amountintransactioncurrency.
+*        IF <fs_match>-amountintransactioncurrency < 0.
+*          <fs_item>-customfield = <fs_match>-amountintransactioncurrency * -1.
+*        ENDIF.
+*        <fs_item>-documentreference = <fs_match>-documentreference.
+*
+*        lv_index_match = sy-tabix.
+*
+*        " Delete the matched UNCLEARED line
+*        DELETE cs_account_statement-lineitemnode INDEX lv_index_match.
+*
+*        " Exit after first match
+*        EXIT.
+*      ENDLOOP.
+*    ENDIF.
+*  ENDIF.
+*ENDLOOP.
+
+****************
+DATA lv_amount TYPE p DECIMALS 2.
+DATA lv_payamount TYPE p DECIMALS 2.
+DATA(count) = 0.
+DATA lv_refamount TYPE p DECIMALS 2.
+DATA lv_prevaccountingdoc TYPE c LENGTH 10.
+DATA lv_curraccountingdoc TYPE c LENGTH 10.
+DATA lv_documentnumber TYPE c LENGTH 10.
+DATA lv_companycode TYPE c LENGTH 4.
+DATA lv_documentdate TYPE d.
+DATA lv_clearedamount TYPE p DECIMALS 2.
+DATA lv_unclearedamount TYPE p DECIMALS 2.
+
+*LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_lineitems>).
+*  CLEAR <fs_lineitems>-customfield.
+*  CLEAR lv_payamount.
+*  "INV Logic
+*  IF <fs_lineitems>-accountingdocumenttype = 'DR' OR <fs_lineitems>-accountingdocumenttype = 'RV'
+*  OR <fs_lineitems>-accountingdocumenttype = 'KR' OR <fs_lineitems>-accountingdocumenttype = 'RE'.
+*    "IF Invoice is fully cleared show O/S Balance as Zero
+*    IF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL.
+*      IF <fs_lineitems>-clearingdate > cs_account_statement-todate.
+*        <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+*        CONDENSE <fs_lineitems>-customfield.
+*      ELSE.
+*        <fs_lineitems>-customfield = '0.00'.
+*        CONDENSE <fs_lineitems>-customfield.
+*      ENDIF.
+**      "To check for payment lines with same document number
+*      LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_clearings>) WHERE accountingdocument = <fs_lineitems>-clearingaccountingdocument
+*      AND ( accountingdocumenttype = 'ZP' OR accountingdocumenttype = 'DZ' ).
+*        count = count + 1.
+*        "to get the amount of uncleared payment line
+*        IF <fs_clearings>-clearingaccountingdocument IS INITIAL.
+*          lv_refamount = <fs_lineitems>-amountintransactioncurrency - <fs_clearings>-amountintransactioncurrency.
+*          <fs_clearings>-amountintransactioncurrency = lv_refamount * -1.
+**          <fs_clearings>-customfield = <fs_clearings>-amountincompanycodecurrency * -1.
+*        ENDIF.
+*        "To delete the duplicate payment line for which the clearing is present count to check if same record is repeating
+**        IF <fs_clearings>-clearingaccountingdocument IS NOT INITIAL AND count > 1.
+*        IF lv_prevaccountingdoc = <fs_clearings>-accountingdocument.
+*          DATA(lv_document) = <fs_clearings>-accountingdocument.
+*          DELETE cs_account_statement-lineitemnode INDEX sy-tabix. "WHERE clearingaccountingdocument IS NOT INITIAL.
+*        ELSE.
+*          lv_prevaccountingdoc = <fs_clearings>-accountingdocument.
+*        ENDIF.
+*      ENDLOOP.
+*    ELSE.
+*
+*      LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_paymitems>) WHERE invoicereference = <fs_lineitems>-invoicereference
+*      AND ( accountingdocumenttype = 'ZP' OR accountingdocumenttype = 'DZ' ).
+*        lv_payamount = lv_payamount + <fs_paymitems>-amountintransactioncurrency.
+**        CONDENSE lv_payamount.
+*      ENDLOOP.
+*      IF lv_payamount IS NOT INITIAL.
+*        lv_amount = lv_payamount + <fs_lineitems>-amountintransactioncurrency.
+*        <fs_lineitems>-customfield = lv_amount.
+*        CONDENSE <fs_lineitems>-customfield.
+*      ELSE.
+*        <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+*        CONDENSE <fs_lineitems>-customfield.
+*      ENDIF.
+*    ENDIF.
+*  ENDIF.
+*  "PAYM Logic
+*  IF <fs_lineitems>-accountingdocumenttype = 'ZP' OR <fs_lineitems>-accountingdocumenttype = 'DZ'.
+*    "To show O/S Balance as Zero when payment is fully cleared
+**    IF <fs_lineitems>-accountingdocument = <fs_lineitems>-clearingaccountingdocument.
+*    IF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL.
+*      <fs_lineitems>-customfield = '0.00'.
+*      CONDENSE <fs_lineitems>-customfield.
+*    ELSEIF <fs_lineitems>-clearingaccountingdocument IS INITIAL.
+**    double peyment lines same reference
+*      READ TABLE cs_account_statement-lineitemnode INTO DATA(ls_clearedlines) WITH KEY clearingaccountingdocument  = <fs_lineitems>-accountingdocument.
+*      IF sy-subrc = 0.
+*        DATA(lv_clearedpaymamount) = ls_clearedlines-amountintransactioncurrency.
+*        IF lv_clearedpaymamount < 0.
+*          lv_clearedpaymamount = lv_clearedpaymamount.
+*        ELSE.
+*          lv_clearedpaymamount = lv_clearedpaymamount * -1.
+*        ENDIF.
+*        DATA(lv_currentlineamount) = <fs_lineitems>-amountintransactioncurrency.
+*        IF lv_currentlineamount < 0.
+*          lv_currentlineamount = lv_currentlineamount.
+*        ELSE.
+*          lv_currentlineamount = lv_currentlineamount * -1.
+*        ENDIF.
+*        <fs_lineitems>-amountintransactioncurrency = lv_clearedpaymamount + lv_currentlineamount.
+*        <fs_lineitems>-customfield = lv_currentlineamount.
+*        CONDENSE <fs_lineitems>-customfield.
+**      ENDIF.
+*      ELSE.
+*        "To show O/S Balance as Zero when partial payment is done and the payment amount is less than the invoiced amounnt
+*        READ TABLE cs_account_statement-lineitemnode INTO DATA(ls_refinv) WITH KEY accountingdocument = <fs_lineitems>-invoicereference.
+*        IF sy-subrc = 0.
+*          IF <fs_lineitems>-amountintransactioncurrency <= ls_refinv-amountintransactioncurrency.
+*            <fs_lineitems>-customfield = '0.00'.
+*            CONDENSE <fs_lineitems>-customfield.
+*          ELSE.
+*            lv_unclearedamount = <fs_lineitems>-amountintransactioncurrency - ls_refinv-amountintransactioncurrency.
+*            lv_unclearedamount = lv_unclearedamount * -1.
+*            <fs_lineitems>-amountintransactioncurrency = lv_unclearedamount.
+*            <fs_lineitems>-customfield = ls_refinv-amountintransactioncurrency.
+*            CONDENSE <fs_lineitems>-customfield.
+*          ENDIF.
+*        ELSE.
+*          LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_payminvref>) WHERE invoicereference = <fs_lineitems>-accountingdocument.
+*            DATA(lv_paymrefamount) = <fs_payminvref>-amountintransactioncurrency.
+*          ENDLOOP.
+*          DATA(lv_paymos) = <fs_lineitems>-amountintransactioncurrency.
+*          <fs_lineitems>-amountintransactioncurrency = lv_paymrefamount - <fs_lineitems>-amountintransactioncurrency.
+*          <fs_lineitems>-customfield = lv_paymos.
+*          CONDENSE <fs_lineitems>-customfield.
+*        ENDIF.
+*      ENDIF.
+*      "Merging of Payment Lines Part- To pass the amount from duplicate entries of payment lines where clearing entry is not present
+*    ELSEIF <fs_lineitems>-accountingdocument = lv_document.
+*      <fs_lineitems>-customfield = <fs_lineitems>-amountincompanycodecurrency.
+*      CONDENSE <fs_lineitems>-customfield.
+*    ENDIF.
+*    IF lv_documentnumber IS NOT INITIAL.
+*      IF lv_documentnumber = <fs_lineitems>-accountingdocument AND lv_companycode = <fs_lineitems>-companycode
+*      AND lv_documentdate = <fs_lineitems>-documentdate.
+*        "delete
+*        DELETE cs_account_statement-lineitemnode INDEX sy-tabix.
+*      ENDIF.
+*    ELSE. "lv_documentnumber IS INITIAL.
+*      lv_documentnumber = <fs_lineitems>-accountingdocument.
+*      lv_companycode    = <fs_lineitems>-companycode.
+*      lv_documentdate   = <fs_lineitems>-documentdate.
+*      lv_amount         = <fs_lineitems>-amountintransactioncurrency.
+*      "read the cleared amount
+**      if <fs_lineitems>-clear
+**      read table cs_account_statement-lineitemnode into data(ls_paymcleared) with key accountingdocument = <fs_lineitems>-accountingdocument
+**      LOOP AT cs_account_statement-lineitemnode INTO DATA(ls_paymcleared) WHERE accountingdocument = <fs_lineitems>-accountingdocument AND clearingaccountingdocument IS NOT INITIAL.
+**        lv_clearedamount = ls_paymcleared-amountintransactioncurrency.
+**      ENDLOOP.
+*      "to update the payment line which does not have the clearing entry
+**      IF <fs_lineitems>-clearingaccountingdocument IS INITIAL.
+**        <fs_lineitems>-amountintransactioncurrency = lv_amount - lv_clearedamount.
+**        <fs_lineitems>-customfield = lv_amount.
+**      ENDIF.
+*    ENDIF.
+*  ENDIF.
+*ENDLOOP.
+
+"to read the Reversal and Reversed status of documents
+DATA lv_count TYPE i.
+
+SELECT companycode,fiscalyear,accountingdocument,accountingdocumenttype,isreversal,isreversed
+FROM i_journalentry WITH PRIVILEGED ACCESS
+FOR ALL ENTRIES IN @cs_account_statement-lineitemnode
+WHERE companycode        = @cs_account_statement-lineitemnode-companycode
+AND   accountingdocument = @cs_account_statement-lineitemnode-accountingdocument
+AND   fiscalyear         = @cs_account_statement-lineitemnode-fiscalyear
+AND   ( isreversal         = 'X' OR  isreversed = 'X' )
+INTO TABLE @DATA(lt_documents).
+
+LOOP AT lt_documents ASSIGNING FIELD-SYMBOL(<fs_deletedocuments>).
+**** TO exclude the Reversal and reversed documents
+
+  READ TABLE lt_documents  WITH KEY accountingdocument = <fs_deletedocuments>-accountingdocument
+                                    isreversal = abap_true  TRANSPORTING NO FIELDS.
+  IF sy-subrc = 0.
+    DELETE cs_account_statement-lineitemnode WHERE accountingdocument = <fs_deletedocuments>-accountingdocument.
+  ELSE.
+    READ TABLE lt_documents  WITH KEY accountingdocument = <fs_deletedocuments>-accountingdocument
+                                     isreversed = abap_true  TRANSPORTING NO FIELDS.
+    IF sy-subrc = 0.
+      DELETE cs_account_statement-lineitemnode WHERE accountingdocument = <fs_deletedocuments>-accountingdocument.
+    ENDIF.
+  ENDIF.
+ENDLOOP.
+********Mering DG Documents*******************JW: To merge the DG Documents comparing Assignment Reference and Journal Entry Date 01/07/2025
+DATA lv_prevassignmentref TYPE c LENGTH 10.
+DATA lv_prevjournalentrydate TYPE d.
+DATA lv_prevamount TYPE p DECIMALS 2.
+DATA lv_currentamount TYPE p DECIMALS 2.
+DATA lv_prevreference TYPE c LENGTH 10.
+DATA lv_currentref    TYPE c LENGTH 10.
+DATA lv_firstline TYPE c LENGTH 1 VALUE abap_true.
+
+LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_contracts>) WHERE accountingdocumenttype = 'DG'.
+  ls_contracts-companycode                    = <fs_contracts>-companycode.
+  ls_contracts-accountingdoucment             = <fs_contracts>-accountingdocument.
+  ls_contracts-accountingdocumentcreationdate = <fs_contracts>-accountingdocumentcreationdate.
+  ls_contracts-accountingdocumenttype         = <fs_contracts>-accountingdocumenttype.
+  ls_contracts-assignmentreference            = <fs_contracts>-assignmentreference.
+  ls_contracts-amountintransactioncurrency    = <fs_contracts>-amountintransactioncurrency.
+  ls_contracts-originalreferencedocument      = <fs_contracts>-originalreferencedocument.
+  APPEND ls_contracts TO lt_contracts.
+ENDLOOP.
+
+SORT lt_contracts ASCENDING BY originalreferencedocument accountingdocumentcreationdate.
+
+
+LOOP AT lt_contracts INTO DATA(ls_documents).
+  DATA(lv_assignmentref)    = ls_documents-assignmentreference.
+  DATA(lv_journalentrydate) = ls_documents-accountingdocumentcreationdate.
+***** to read the first line record
+  IF lv_firstline = abap_true.
+    lv_prevassignmentref = lv_assignmentref.
+    lv_prevjournalentrydate = lv_journalentrydate.
+    lv_currentamount = ls_documents-amountintransactioncurrency.
+    lv_currentref        = ls_documents-originalreferencedocument.
+    lv_firstline = abap_false.
+***** to sum the amount comparing contract and date
+  ELSEIF lv_assignmentref = lv_prevassignmentref AND lv_journalentrydate = lv_prevjournalentrydate.
+    lv_currentamount = lv_currentamount + ls_documents-amountintransactioncurrency.
+    lv_currentref    = ls_documents-originalreferencedocument.
+  ELSE.
+***** To append the firstline record
+    ls_finalcontract-contract       = lv_prevassignmentref.
+    ls_finalcontract-contractamount = lv_currentamount.
+    ls_finalcontract-reference      = lv_currentref.
+    APPEND ls_finalcontract TO lt_finalcontract.
+    CLEAR lv_currentamount.
+**** to read the values to compare with next iteration
+    lv_prevassignmentref    = ls_documents-assignmentreference.
+    lv_prevjournalentrydate = ls_documents-accountingdocumentcreationdate.
+    lv_currentamount = ls_documents-amountintransactioncurrency.
+    lv_currentref = ls_documents-originalreferencedocument.
+  ENDIF.
+ENDLOOP.
+***** to append the last calculated values
+IF lv_firstline = abap_false.
+  ls_finalcontract-contract       = lv_prevassignmentref.
+  ls_finalcontract-contractamount = lv_currentamount.
+  ls_finalcontract-reference = lv_currentref.
+  APPEND ls_finalcontract TO lt_finalcontract.
+ENDIF.
+
+
+LOOP AT cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_lineitems>).
+  lv_count = lv_count + 1.
+  CLEAR:<fs_lineitems>-customfield.
+****exclude da and dv documents
+  IF <fs_lineitems>-accountingdocumenttype = 'DA' OR <fs_lineitems>-accountingdocumenttype = 'DV'.
+    DELETE cs_account_statement-lineitemnode WHERE accountingdocument = <fs_lineitems>-accountingdocument.
+    CONTINUE.
+  ENDIF.
+***** Migrated Documents *********
+  IF <fs_lineitems>-accountingdocumenttype = 'UE'.
+    IF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL.
+      <fs_lineitems>-customfield = '0.00'.
+      CONDENSE <fs_lineitems>-customfield.
+      <fs_lineitems>-amountincompanycodecurrency = '0.00'.
+    ELSE.
+      <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+      CONDENSE <fs_lineitems>-customfield.
+      <fs_lineitems>-amountincompanycodecurrency = <fs_lineitems>-amountintransactioncurrency.
+    ENDIF.
+  ENDIF.
+
+******  "Invoice Logic*****
+  IF <fs_lineitems>-accountingdocumenttype = 'DR' OR <fs_lineitems>-accountingdocumenttype = 'RE'
+  OR <fs_lineitems>-accountingdocumenttype = 'KR' OR <fs_lineitems>-accountingdocumenttype = 'RV'.
+    "CHECK IF PARTIAL PAYMENT OF INVOICE IS DONE
+    IF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL AND is_corr_request-to_date < <fs_lineitems>-clearingdate. " to calculte O/S if to date < clearing date
+      "read payment line referring invoice document = invoice ref of payment document
+      READ TABLE cs_account_statement-lineitemnode INTO DATA(ls_partialpayment) WITH KEY invoicereference = <fs_lineitems>-accountingdocument accountingdocumenttype = 'DZ'.
+      IF sy-subrc = 0.
+        DATA(lv_paymentamount) = ls_partialpayment-amountintransactioncurrency.
+        <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency + lv_paymentamount.
+        CONDENSE <fs_lineitems>-customfield.
+        "For Form field binding purpose as this field is not used in the form
+        <fs_lineitems>-amountincompanycodecurrency = <fs_lineitems>-amountintransactioncurrency + lv_paymentamount.
+        "to update the same amount in the custom field when above logic fails
+      ELSE.
+        <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+        "For Form field binding purpose as this field is not used in the form
+        <fs_lineitems>-amountincompanycodecurrency = <fs_lineitems>-amountintransactioncurrency.
+      ENDIF.
+    ELSEIF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL.
+      "if not partial payemnet to update as 0 when clearing document is present
+      <fs_lineitems>-customfield = '0.00'.
+      CONDENSE <fs_lineitems>-customfield.
+      "For Form field binding purpose as this field is not used in the form
+      <fs_lineitems>-amountincompanycodecurrency = '0.00'.
+    ELSE.
+      "to update the same amount if the Clearing Document is not present
+      <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+      CONDENSE <fs_lineitems>-customfield.
+      "For Form field binding purpose as this field is not used in the form
+      <fs_lineitems>-amountincompanycodecurrency = <fs_lineitems>-amountintransactioncurrency.
+    ENDIF.
+  ENDIF.
+
+*********PAYMENT LOGIC*********
+  IF <fs_lineitems>-accountingdocumenttype = 'ZP' OR <fs_lineitems>-accountingdocumenttype = 'DZ'.
+    "OVER PAYMENT
+    IF <fs_lineitems>-clearingaccountingdocument IS NOT INITIAL.
+      <fs_lineitems>-customfield = '0.00'. "To display 0 when clearing is present
+      CONDENSE <fs_lineitems>-customfield.
+      "For Form field binding purpose as this field is not used in the form
+      <fs_lineitems>-amountincompanycodecurrency = '0.00'.
+    ELSE.
+      "check for the payment line with the clearing document and get the cleared amount and delete the cleared line
+      "add the amount in the uncleared payment line and display the initial pending amount before summing in the custom field
+      READ TABLE cs_account_statement-lineitemnode ASSIGNING FIELD-SYMBOL(<fs_overpayment>) WITH KEY clearingaccountingdocument = <fs_lineitems>-accountingdocument accountingdocumenttype = 'DZ'.
+      IF sy-subrc = 0 AND <fs_lineitems>-amountintransactioncurrency <> <fs_overpayment>-amountintransactioncurrency.
+        DATA(lv_paydamount) = <fs_overpayment>-amountintransactioncurrency.
+        DELETE cs_account_statement-lineitemnode INDEX sy-tabix.
+        <fs_lineitems>-customfield = <fs_lineitems>-amountintransactioncurrency.
+        CONDENSE <fs_lineitems>-customfield.
+        "For Form field binding purpose as this field is not used in the form
+        <fs_lineitems>-amountincompanycodecurrency = <fs_lineitems>-amountintransactioncurrency.
+        <fs_lineitems>-amountintransactioncurrency = <fs_lineitems>-amountintransactioncurrency + lv_paydamount.
+
+      ELSE.
+        "to display 0 when the partial payment entry does not have the clearing but has the invoice ref .
+        "compare the amount with invoice ref and payment amount < invoice refer amount show the payment amount O/s as 0
+        READ TABLE cs_account_statement-lineitemnode INTO DATA(ls_paymentdone) WITH KEY accountingdocument = <fs_lineitems>-invoicereference accountingdocumenttype = 'DR'.
+        IF sy-subrc = 0.
+          IF ls_paymentdone-amountintransactioncurrency > <fs_lineitems>-amountintransactioncurrency.
+            <fs_lineitems>-customfield = '0.00'.
+            CONDENSE <fs_lineitems>-customfield.
+            "For Form field binding purpose as this field is not used in the form
+            <fs_lineitems>-amountincompanycodecurrency = '0.00'.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+*********** Merging Contracts Logic ***********  JW: To merge the DG Documents comparing Assignment Reference and Journal Entry Date 01/07/2025
+  IF <fs_lineitems>-accountingdocumenttype = 'DG'.
+    READ TABLE lt_finalcontract INTO DATA(ls_dgdocuments) WITH KEY contract  = <fs_lineitems>-assignmentreference
+                                                                   reference = <fs_lineitems>-originalreferencedocument.
+    IF sy-subrc = 0.
+      <fs_lineitems>-amountintransactioncurrency = ls_dgdocuments-contractamount.
+      <fs_lineitems>-customfield                 = ls_dgdocuments-contractamount.
+      <fs_lineitems>-amountincompanycodecurrency = ls_dgdocuments-contractamount.
+      <fs_lineitems>-originalreferencedocument   = ls_dgdocuments-contract.
+    ELSE.
+      DELETE cs_account_statement-lineitemnode WHERE assignmentreference     = <fs_lineitems>-assignmentreference
+                                               AND originalreferencedocument = <fs_lineitems>-originalreferencedocument.
+    ENDIF.
+  ENDIF.
+ENDLOOP.
+
+*** To add the totals of O/S balance in balance line item node -- JW: 02/06/2025
+DATA lv_gbpsum TYPE p DECIMALS 2.
+DATA lv_eursum TYPE p DECIMALS 2.
+DATA lv_gbpcarriedsum TYPE p DECIMALS 2.
+DATA lv_eurcarriedsum TYPE p DECIMALS 2.
+
+*** Calculate totals of O/S Totals Column
+
+LOOP AT cs_account_statement-lineitemnode INTO DATA(ls_ostotals).
+  IF ls_ostotals-transactioncurrency = 'GBP'.
+*  lv_gbpsum = lv_gbpsum + ls_ostotals-customfield.
+    lv_gbpsum = lv_gbpsum + ls_ostotals-amountincompanycodecurrency.
+
+  ELSE.
+*  lv_eursum = lv_eursum + ls_ostotals-customfield.
+    lv_eursum = lv_eursum + ls_ostotals-amountincompanycodecurrency.
+  ENDIF.
+ENDLOOP.
+
+*** Calculate Total of Carried Forward Balance
+LOOP AT cs_account_statement-balancecarriedopenitemnode INTO DATA(ls_balancecarriedforward).
+  IF ls_balancecarriedforward-transactioncurrency = 'GBP'.
+    lv_gbpcarriedsum = lv_gbpcarriedsum + ls_balancecarriedforward-amountintransactioncurrency.
+  ELSE.
+    lv_eurcarriedsum = lv_eurcarriedsum + ls_balancecarriedforward-amountintransactioncurrency.
+  ENDIF.
+ENDLOOP.
+
+** To update the balance item nodes fields as there are no custom fields to map and standard calulated balance line item node std values are not displayed in the form
+cs_account_statement-balancelineitemnode[ 1 ]-amountincompanycodecurrency = lv_gbpsum + lv_gbpcarriedsum.
+cs_account_statement-balancelineitemnode[ 1 ]-amountintransactioncurrency = lv_eursum + lv_eurcarriedsum.
