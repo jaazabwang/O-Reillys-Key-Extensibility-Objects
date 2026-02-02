@@ -1,0 +1,48 @@
+DATA:ls_message LIKE LINE OF ct_message.
+"To get the products and their substitute products maintained
+SELECT product,yy1_subsprdctmaster_prd
+FROM i_product WITH PRIVILEGED ACCESS
+WHERE yy1_subsprdctmaster_prd IS NOT INITIAL
+INTO TABLE @DATA(lt_data).
+
+" To raise Error/Warning if the Product and Substitute are maintained in Vice Versa manner
+IF sy-subrc = 0.
+  LOOP AT it_product INTO DATA(ls_product).
+    READ TABLE lt_data INTO DATA(ls_data) WITH KEY product = ls_product-yy1_subsprdctmaster_prd yy1_subsprdctmaster_prd = ls_product-product.
+    IF sy-subrc = 0.
+*      ls_message-product = ls_product-product.
+      ls_message-msgty = 'E'.
+      ls_message-msgid = 'MG'.
+      ls_message-msgno = '899'.
+      ls_message-msgv1 = |Product | &&  ls_product-product  && ' is assigned'.
+      ls_message-msgv2 =  'to the substitute product'.
+      ls_message-msgv3 = ls_product-yy1_subsprdctmaster_prd.
+      APPEND ls_message TO ct_message.
+    ENDIF.
+  ENDLOOP.
+ENDIF.
+
+***************Validation of fields Gross Weight Net Weight and Volume***********************
+LOOP AT it_product ASSIGNING FIELD-SYMBOL(<ls_validation>).
+  IF <ls_validation>-grossweight IS INITIAL.
+    ls_message-msgty = 'E'.
+    ls_message-msgid = 'MG'.
+    ls_message-msgno = '899'.
+    ls_message-msgv1 = |Enter Gross Weight|.
+    APPEND ls_message TO ct_message.
+  ENDIF.
+  IF <ls_validation>-netweight IS INITIAL.
+    ls_message-msgty = 'E'.
+    ls_message-msgid = 'MG'.
+    ls_message-msgno = '899'.
+    ls_message-msgv1 = |Enter Net Weight|.
+    APPEND ls_message TO ct_message.
+  ENDIF.
+  IF <ls_validation>-materialvolume IS INITIAL.
+    ls_message-msgty = 'E'.
+    ls_message-msgid = 'MG'.
+    ls_message-msgno = '899'.
+    ls_message-msgv1 = |Enter Volume|.
+    APPEND ls_message TO ct_message.
+  ENDIF.
+ENDLOOP.
