@@ -1,0 +1,111 @@
+salesdocument_extension_out = salesdocument_extension_in.
+
+"Define Types
+DATA : BEGIN OF wa_product,
+         product             TYPE i_product-product,
+         sizeordimensiontext TYPE i_product-sizeordimensiontext,
+         productstandardid   TYPE i_product-productstandardid,
+         quantitynumerator   TYPE  i_productunitsofmeasure-quantitynumerator,
+         alternativeunit     TYPE i_productunitsofmeasure-alternativeunit,
+         quantitydenominator TYPE i_productunitsofmeasure-quantitydenominator,
+         baseunit            TYPE i_productunitsofmeasure-baseunit,
+       END OF wa_product.
+"Define Internal Tables
+DATA : lt_product LIKE STANDARD TABLE OF wa_product.
+
+"Define Variables
+DATA lv_quantitydenominator TYPE string.
+DATA lv_quantitynumerator TYPE string.
+
+IF salesdocumentitems IS NOT INITIAL.
+  SELECT  a~product, a~sizeordimensiontext, a~productstandardid,
+  b~quantitynumerator , b~alternativeunit, b~quantitydenominator , b~baseunit
+  FROM i_product WITH PRIVILEGED ACCESS AS a
+  INNER JOIN i_productunitsofmeasure  WITH PRIVILEGED ACCESS AS b
+  ON  a~product =  b~product
+  FOR ALL ENTRIES IN @salesdocumentitems
+  WHERE a~product         = @salesdocumentitems-material
+  AND   b~alternativeunit = 'PAK'
+  INTO TABLE @lt_product.
+
+  LOOP AT lt_product INTO DATA(ls_product) .
+    IF ls_product IS NOT INITIAL.
+      DATA(lv_alternativeunit) = ls_product-alternativeunit.
+      IF lv_alternativeunit EQ 'PAK'.
+        DATA(lv_alternativeunit_final) = 'PAC'.
+      ENDIF.
+      DATA(lv_baseunit) = ls_product-baseunit.
+      IF lv_baseunit EQ 'CS'.
+        DATA(lv_baseunit_final) = 'CV'.
+      ENDIF.
+
+      lv_quantitydenominator = ls_product-quantitydenominator.
+      lv_quantitynumerator   = ls_product-quantitynumerator.
+
+      DATA(lv_unitconv) = lv_quantitydenominator && lv_alternativeunit_final && ' ' && ' X ' && ' ' && lv_quantitynumerator && lv_baseunit_final.
+
+      salesdocument_extension_out-yy1_pack1_sdh = lv_unitconv.
+      salesdocument_extension_out-yy1_size2_sdh = ls_product-sizeordimensiontext.
+    ENDIF.
+  ENDLOOP.
+ENDIF.
+
+"To pass the plant into header plant custom field
+IF salesdocumentitems IS NOT INITIAL.
+  salesdocument_extension_out-yy1_plant_sdh = salesdocumentitems[ 1 ]-productionplant.
+ENDIF.
+
+"To pass the pricing fields from customer master to sales document header.
+SELECT SINGLE yy1_contract1_bus,yy1_contract2_bus,yy1_rrp_bus,yy1_contract3_bus,
+yy1_contract4_bus,yy1_contract5_bus,yy1_drsflag_bus,yy1_promotionalscheme1_bus,
+yy1_promotionalscheme2_bus,yy1_promotionalscheme3_bus,yy1_promotionalscheme4_bus,
+yy1_promotionalscheme5_bus,yy1_promotionalscheme6_bus,yy1_promotionalscheme7_bus,
+yy1_defaultcarrier_bus,yy1_barcode_bus,yy1_salesrep_bus
+FROM i_businesspartner WITH PRIVILEGED ACCESS
+WHERE businesspartner = @salesdocument-soldtoparty
+INTO @DATA(ls_customer).
+
+IF sy-subrc = 0.
+  salesdocument_extension_out-yy1_contract1sd_sdh        = ls_customer-yy1_contract1_bus.
+  salesdocument_extension_out-yy1_contract2sd_sdh        = ls_customer-yy1_contract2_bus.
+  salesdocument_extension_out-yy1_rrpsd_sdh              = ls_customer-yy1_rrp_bus.
+  salesdocument_extension_out-yy1_contract3sd_sdh        = ls_customer-yy1_contract3_bus.
+  salesdocument_extension_out-yy1_contract4sd_sdh        = ls_customer-yy1_contract4_bus.
+  salesdocument_extension_out-yy1_contract5sd_sdh        = ls_customer-yy1_contract5_bus.
+  salesdocument_extension_out-yy1_drsflagsd_sdh          = ls_customer-yy1_drsflag_bus.
+  salesdocument_extension_out-yy1_promotionalschemsd_sdh = ls_customer-yy1_promotionalscheme1_bus.
+  salesdocument_extension_out-yy1_promotionalschm2sd_sdh = ls_customer-yy1_promotionalscheme2_bus.
+  salesdocument_extension_out-yy1_promotionalschm3sd_sdh = ls_customer-yy1_promotionalscheme3_bus.
+  salesdocument_extension_out-yy1_promotionalschm4sd_sdh = ls_customer-yy1_promotionalscheme4_bus.
+  salesdocument_extension_out-yy1_promotionalschm5sd_sdh = ls_customer-yy1_promotionalscheme5_bus.
+  salesdocument_extension_out-yy1_promotionalschm6sd_sdh = ls_customer-yy1_promotionalscheme6_bus.
+  salesdocument_extension_out-yy1_promotionalschm7sd_sdh = ls_customer-yy1_promotionalscheme7_bus.
+  salesdocument_extension_out-yy1_defaultcarriersd_sdh   = ls_customer-yy1_defaultcarrier_bus.
+  salesdocument_extension_out-yy1_barcode2_sdh           = ls_customer-yy1_barcode_bus.
+  salesdocument_extension_out-yy1_salesreprsntative_sdh  = ls_customer-yy1_salesrep_bus.
+ENDIF.
+
+
+"To pass the total quantity of materials used in sales order
+salesdocument_extension_out-yy1_quantity_sdh = 0.
+LOOP AT salesdocumentitems INTO DATA(ls_salesdocumentitems).
+  IF ls_salesdocumentitems-material IS NOT INITIAL AND ls_salesdocumentitems-orderquantity IS NOT INITIAL.
+    salesdocument_extension_out-yy1_quantity_sdh = salesdocument_extension_out-yy1_quantity_sdh + ls_salesdocumentitems-orderquantity.
+  ENDIF.
+ENDLOOP.
+
+
+LOOP AT salesdocumentitems_extension INTO DATA(ls_item) WHERE yy1_routeitem_sdi IS NOT INITIAL.
+  IF salesdocument_extension_out-yy1_routecode_sdh IS INITIAL.
+    salesdocument_extension_out-yy1_routecode_sdh = ls_item-yy1_routeitem_sdi.
+  ENDIF.
+ENDLOOP.
+
+****************** To populate Credit Stock as 1 when SO type = CBAR and 2 when SO type = G2 ******* 23/06/2025
+IF salesdocument-salesdocumenttype = 'G2'.
+  salesdocument_extension_out-yy1_creditstock_sdh = '2'.
+
+ELSEIF salesdocument-salesdocumenttype = 'CBAR'.
+  salesdocument_extension_out-yy1_creditstock_sdh = '1'.
+ENDIF.
+****************************************************************************************************
