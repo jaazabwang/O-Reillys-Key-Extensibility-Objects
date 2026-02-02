@@ -1,0 +1,70 @@
+*Adde by nakshatra to influence condition value for ZSD5 condition type - 16/04/2025
+
+*   Move the importing parameters to the changing parameters.
+    MOVE-CORRESPONDING item_amounts TO item_result_amounts.
+    MOVE-CORRESPONDING item_attributes TO item_result_attributes.
+    MOVE-CORRESPONDING item_quantities TO item_result_quantities.
+    MOVE-CORRESPONDING prcg_element_attributes TO prcg_element_result_amounts.
+    MOVE-CORRESPONDING active_price_amounts TO active_price_result_amounts.
+
+
+    DATA : lv_amount   TYPE int1 VALUE 0.
+
+    IF item_quantities-orderquantity IS NOT INITIAL
+       AND prcg_element_attributes-conditiontype = 'ZDS5'.
+
+      SELECT SINGLE FROM i_slsprcgconditionrecord WITH PRIVILEGED ACCESS
+      FIELDS conditionquantity, conditionrateamount, conditionratevalue
+      WHERE conditionrecord = @prcg_element_attributes-conditionrecord
+      INTO @DATA(ls_slsprcgrecord).
+
+      IF sy-subrc IS INITIAL.
+
+        prcg_element_result_amounts-conditionratevalue = prcg_element_attributes-conditionratevalue .
+        prcg_element_result_amounts-conditionquantityunit  = prcg_element_attributes-conditionquantityunit.
+
+*     DATA(lv_quantity) = item_quantities-orderquantity * -1.
+*
+*     IF lv_quantity > -3.
+*       prcg_element_result_amounts-conditionamount = 0.
+*     ELSE.
+*       WHILE prcg_element_result_amounts-conditionamount IS INITIAL.
+*         lv_amount = lv_amount  + 1.
+*
+*         DATA(lv_previous)  = -3 * lv_amount.
+*         DATA(lv_next) = lv_previous - 3.
+*
+*         IF lv_quantity = lv_previous.
+*           prcg_element_result_amounts-conditionamount = lv_previous.
+*         ELSEIF lv_quantity < lv_previous AND lv_quantity > lv_next.
+*           prcg_element_result_amounts-conditionamount = lv_previous.
+*         ELSEIF lv_quantity = lv_next.
+*           prcg_element_result_amounts-conditionamount = lv_next.
+*         ENDIF.
+*
+*         IF prcg_element_result_amounts-conditionamount IS NOT INITIAL.
+*           EXIT.
+*         ENDIF.
+*
+*       ENDWHILE.
+*     ENDIF.
+
+        TRY.
+            DATA(lv_quantity) = item_quantities-orderquantity / ls_slsprcgrecord-conditionquantity.
+
+            IF lv_quantity IS NOT INITIAL AND lv_quantity GE 1.
+
+              DATA(lv_trunc_qty) = trunc( lv_quantity ).
+
+              DATA(lv_total_discount) = lv_trunc_qty * ls_slsprcgrecord-conditionrateamount.
+
+              prcg_element_result_amounts-conditionamount = lv_total_discount.
+            ELSE.
+              prcg_element_result_amounts-conditionamount = 0.
+            ENDIF.
+
+          CATCH cx_root INTO DATA(lv_root).
+
+        ENDTRY.
+      ENDIF.
+    ENDIF.
