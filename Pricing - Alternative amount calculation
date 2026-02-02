@@ -1,0 +1,45 @@
+
+*   Move the importing parameters to the changing parameters.
+    MOVE-CORRESPONDING item_amounts TO item_result_amounts.
+    MOVE-CORRESPONDING item_attributes TO item_result_attributes.
+    MOVE-CORRESPONDING item_quantities TO item_result_quantities.
+    MOVE-CORRESPONDING prcg_element_attributes TO prcg_element_result_amounts.
+    MOVE-CORRESPONDING active_price_amounts TO active_price_result_amounts.
+
+    SELECT SINGLE FROM i_product WITH PRIVILEGED ACCESS AS a
+    INNER JOIN i_productunitsofmeasure WITH PRIVILEGED ACCESS AS b
+    ON a~product = b~product
+    FIELDS quantitydenominator, yy1_batteryweights_prd
+    WHERE a~product = @item_attributes-material
+    AND alternativeunit = 'ST'
+    AND b~baseunit = 'CS'
+    INTO @DATA(ls_proddet).
+
+    IF sy-subrc IS INITIAL.
+
+      DATA(lv_currentdate) = cl_abap_context_info=>get_system_date( ).
+
+      SELECT SINGLE FROM i_slsprcgconditionrecord WITH PRIVILEGED ACCESS
+      FIELDS conditionratevalue
+      WHERE conditiontype = 'ZBRC'
+      AND conditionvalidityenddate GE @lv_currentdate
+      INTO @DATA(lv_conditionratevalue).
+
+      IF sy-subrc IS INITIAL.
+
+        DATA(lv_calcwt_pc) = CONV brgew_ap( ls_proddet-quantitydenominator * ls_proddet-yy1_batteryweights_prd ).
+
+        DATA(lv_calcwt_kg) = CONV brgew_ap( lv_calcwt_pc / 1000 ).
+
+        DATA(lv_calcamount) = CONV netwr_ap( lv_calcwt_kg * lv_conditionratevalue * item_quantities-orderquantity ).
+
+        active_price_result_amounts-conditioncurrency = prcg_element_attributes-conditioncurrency.
+        active_price_result_amounts-conditionratevalue = lv_calcamount.
+
+        prcg_element_result_amounts-conditioncurrency = prcg_element_attributes-conditioncurrency.
+*        prcg_element_result_amounts-conditionbasevalue = lv_calcamount.
+*        prcg_element_result_amounts-conditionratevalue = lv_calcamount
+        prcg_element_result_amounts-conditionamount = lv_calcamount.
+
+      ENDIF.
+    ENDIF.
