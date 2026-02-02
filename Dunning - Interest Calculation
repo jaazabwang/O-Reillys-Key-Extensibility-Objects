@@ -1,0 +1,29 @@
+DATA(lv_year1) = is_item-bldat.  " Get current year
+
+DATA(lv_year) = lv_year1(4).
+DATA :lv_days TYPE i,
+      lv_int  TYPE p.
+**DATA(lo_calendar) = cl_abap_calendar=>factory( ).
+
+*DATA(lv_days) = lo_calendar->get_days_in_year( lv_year ).
+*IF ( lv_year MOD 4 = 0 AND lv_year MOD 100 <> 0 ) OR ( lv_year MOD 400 = 0 ).
+*  lv_days = 366.  " Leap Year
+*ELSE.
+* lv_days = 365.  " Normal Year
+*ENDIF.
+SELECT * INTO TABLE @DATA(lt_count)
+  FROM i_calendardate
+  WHERE calendaryear = @lv_year.
+
+IF sy-subrc = 0.
+  lv_days = lines( lt_count ).
+ENDIF.
+
+*lv_int = ( IS_ITEM-dmshb * is_item-zinss / 100 ) * is_item-zinst.
+* DUNN_NOTITEM_EXTENSION-yy1_interest_dni = lv_int / lv_days.
+*******SOC JW: To pass interest 8 for L3 because the interest is not getting calculted in QA system" 01/04/2025******
+*IF is_item-mahnn = '3'.
+lv_int = ( is_item-dmshb * 8 / 100 ) * is_item-zinst.
+*ENDIF.
+dunn_notitem_extension-yy1_interest_dni = lv_int / lv_days.
+******************************EOC*******************************************************************
