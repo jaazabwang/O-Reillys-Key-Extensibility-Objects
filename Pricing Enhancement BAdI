@@ -1,0 +1,35 @@
+*Move the importing parameters to the changing parameters.
+    MOVE-CORRESPONDING item_amounts TO item_result_amounts.
+    MOVE-CORRESPONDING item_attributes TO item_result_attributes.
+    MOVE-CORRESPONDING item_quantities TO item_result_quantities.
+    MOVE-CORRESPONDING prcg_element_attributes TO prcg_element_result_amounts.
+    MOVE-CORRESPONDING active_price_amounts TO active_price_result_amounts.
+
+
+    SELECT SINGLE FROM zmm_i_duty_details
+    FIELDS a50dutytariffperunit, a70dutytariffperunit
+    WHERE batch = @item_attributes-inventoryvaluationtype  " added by nakshatra 29/10/2025 - was getting YY1_BATCHNUMBER_PCI blank
+    INTO @DATA(ls_priceperunit).
+
+    IF sy-subrc IS INITIAL.
+
+      DATA(lv_newpricea50) = item_quantities-orderquantity * ls_priceperunit-a50dutytariffperunit.
+      DATA(lv_newpricea70) = item_quantities-orderquantity * ls_priceperunit-a70dutytariffperunit.
+
+      "SOC : To update conditiontype if Custoemr Country GB - Added by Nakshatra 26/11/2025
+      SELECT SINGLE country
+      FROM i_customer WITH PRIVILEGED ACCESS
+      WHERE customer = @item_attributes-soldtoparty
+      AND country = 'GB'
+      INTO @DATA(ls_cust_country).
+      IF sy-subrc = 0.
+        IF prcg_element_attributes-conditiontype = 'ZD50'.
+*        PRCG_ELEMENT_RESULT_AMOUNTS-CONDITIONRATEVALUE = lv_newpriceA50.
+          prcg_element_result_amounts-conditionamount = lv_newpricea50.
+        ENDIF.
+        IF prcg_element_attributes-conditiontype = 'ZD70'.
+          prcg_element_result_amounts-conditionamount = lv_newpricea70.
+        ENDIF.
+      ENDIF.
+      "EOC : To update conditiontype if Custoemr Country GB - Added by Nakshatra 26/11/2025
+    ENDIF.
