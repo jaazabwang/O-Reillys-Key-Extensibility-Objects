@@ -1,0 +1,27 @@
+* Check if Custom Duty is enabled for Supplier
+
+SELECT SINGLE i_businesspartner~yy1_customduty_bus
+    FROM i_businesspartner WITH PRIVILEGED ACCESS
+    WHERE i_businesspartner~businesspartner = @doc_attributes-supplier
+    INTO @DATA(lv_customduty).
+
+IF sy-subrc = 0.
+************* JW: To get the Country of Origin of the Product -- 20/06/2025
+  SELECT purchasinginforecord,suppliercertorigincountry,isdeleted
+FROM c_purchasinginforecorddex WITH PRIVILEGED ACCESS
+WHERE material = @item_attributes-material
+AND isdeleted NE 'X'
+INTO TABLE @DATA(lt_countryoforigin).
+
+  IF sy-subrc = 0.
+    SORT lt_countryoforigin ASCENDING BY purchasinginforecord.
+    DATA(lv_countryoforigin) = lt_countryoforigin[ 1 ]-suppliercertorigincountry.
+    IF lv_customduty = 'X' AND lv_countryoforigin NE 'GB'. "To Fulfill prcing is Custom Duty is present and Country of Origin NE GB -- 20/06/2025
+      pricingrequirementisfulfilled = 'X'.
+    ENDIF.
+  ENDIF.
+ENDIF.
+
+
+
+
