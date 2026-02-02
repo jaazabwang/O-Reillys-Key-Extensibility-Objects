@@ -1,0 +1,207 @@
+ MOVE-CORRESPONDING delivery_document_in TO delivery_document_out.
+ MOVE-CORRESPONDING delivery_doc_changed_item_in TO delivery_doc_changed_item_out.
+
+ "To get pack
+* SELECT quantitynumerator, alternativeunit, quantitydenominator, baseunit ,product
+* FROM i_productunitsofmeasure WITH PRIVILEGED ACCESS
+* WHERE product = @delivery_doc_changed_item_in-material
+* INTO TABLE @DATA(lt_data).
+*
+* IF lt_data IS NOT INITIAL.
+*   READ TABLE lt_data INTO DATA(ls_data) WITH KEY product  =   delivery_doc_changed_item_in-material
+*                                                  alternativeunit = 'PAK'.
+*
+*   IF sy-subrc = 0.
+*     LOOP AT lt_data INTO ls_data WHERE product EQ delivery_doc_changed_item_in-material
+*                                  AND baseunit EQ  'CS'.
+*       .
+*       IF sy-subrc = 0.
+*         DATA(lv_alternativeunit) = ls_data-alternativeunit.
+*         IF lv_alternativeunit EQ 'PAK'.
+*           DATA(lv_alternativeunit_final) = 'PAC'.
+*         ENDIF.
+*         DATA(lv_baseunit) = ls_data-baseunit.
+*         IF lv_baseunit EQ 'CS'.
+*           DATA(lv_baseunit_final) = 'CV'.
+*         ENDIF.
+*         DATA lv_quantitydenominator TYPE string.
+*         lv_quantitydenominator = ls_data-quantitydenominator.
+*         DATA lv_quantitynumerator TYPE string.
+*         lv_quantitynumerator = ls_data-quantitynumerator.
+*         DATA(lv_unitconv) = lv_quantitydenominator && lv_alternativeunit_final. " && ' ' && ' X ' && ' ' && lv_quantitynumerator && lv_baseunit_final .
+*         .
+*         delivery_doc_changed_item_out-yy1_pack2_dli = lv_unitconv.
+*       ENDIF.
+*     ENDLOOP.
+*   ENDIF.
+* ENDIF.
+
+ SELECT product,alternativeunit,quantitynumerator,quantitydenominator,baseunit
+  FROM i_productunitsofmeasure WITH PRIVILEGED ACCESS
+  FOR ALL ENTRIES IN @delivery_document_items_in
+  WHERE product = @delivery_document_items_in-material
+  INTO TABLE @DATA(lt_data).
+
+ IF sy-subrc = 0.
+   READ TABLE lt_data INTO DATA(ls_packvalue) WITH KEY alternativeunit = 'PAK' baseunit = 'CS'.
+   IF sy-subrc = 0.
+     DATA(lv_alternativeunit_final) = 'PAC'.
+     DATA(lv_baseunit_final) = 'CV'.
+     DATA(lv_unitconv) = ls_packvalue-quantitydenominator && ' ' && lv_alternativeunit_final.
+     delivery_doc_changed_item_out-yy1_pack2_dli = lv_unitconv.
+   ENDIF.
+ ENDIF.
+
+ "To get unit price
+ SELECT  netpriceamount ,product
+ FROM i_salesorderitem WITH PRIVILEGED ACCESS
+ WHERE product = @delivery_doc_changed_item_in-material
+ AND salesorder = @delivery_doc_changed_item_in-referencesddocument
+ INTO TABLE @DATA(lt_price).
+
+ IF lt_price IS NOT INITIAL.
+   LOOP AT lt_price INTO DATA(ls_price) WHERE product = delivery_doc_changed_item_in-material.
+     delivery_doc_changed_item_out-yy1_unitprice1_dli = ls_price-netpriceamount.
+   ENDLOOP.
+ ENDIF.
+
+ "To get ShelfLifeExpirationDate	
+ "select ShelfLifeExpirationDate, material
+ "from i_batch with privileged access
+ "where material =  @delivery_doc_changed_item_in-material
+ "and batch =     @DELIVERY_DOC_CHANGED_ITEM_OUT-batch
+ "and issubordinatebatch = 'X'
+ " into table @data(lt_expdate).
+
+ "if lt_expdate is not initial.
+ "  loop at lt_expdate into data(ls_expdate) where material =  delivery_doc_changed_item_in-material.
+ "  DELIVERY_DOC_CHANGED_ITEM_OUT-yy1_shelfexpdate1_dli = ls_expdate-shelflifeexpirationdate.
+ "  endloop.
+ "endif.
+
+ "To get EAN CODE
+
+ SELECT  SINGLE product, productstandardid
+ FROM i_product WITH PRIVILEGED ACCESS
+ WHERE product =  @delivery_doc_changed_item_in-material
+ INTO  @DATA(ls_ean).
+
+ IF ls_ean IS NOT INITIAL.
+   " loop at lt_ean into data(ls_ean) where product = delivery_doc_changed_item_in-material.
+   delivery_doc_changed_item_out-yy1_shelfexpdate1_dli = ls_ean-productstandardid.
+   "endloop.
+ ENDIF.
+
+ "To get PO Number in External ID
+ DATA(lv_ponumber) = |{ delivery_doc_changed_item_in-referencesddocument ALPHA = OUT }|.
+ IF lv_ponumber IS NOT INITIAL AND delivery_document_in-deliverydocumenttype NE 'ELST'.
+   delivery_document_out-deliverydocumentbysupplier = lv_ponumber.
+ ENDIF.
+
+* SELECT a~outbounddelivery,a~outbounddeliveryitem,a~product,a~actualdeliveryquantity,a~referencesddocument,
+*   b~salesorder,b~schedulelineorderquantity
+*   FROM i_outbounddeliveryitem WITH PRIVILEGED ACCESS AS a
+*   INNER JOIN c_slsordschdlnwthcalinfodex WITH PRIVILEGED ACCESS AS b
+*   ON b~salesorder = a~referencesddocument
+*   AND b~salesorderitem = a~referencesddocumentitem
+*   AND a~product = b~product
+*   WHERE
+*   a~product = @delivery_doc_changed_item_in-material
+*   AND b~schedulelineorderquantity IS NOT INITIAL
+*   INTO TABLE @DATA(lt_orderedqty).
+
+* LOOP AT lt_orderedqty INTO DATA(ls_orderedqty).
+*   delivery_doc_changed_item_out-yy1_qtyordered_dli = ls_orderedqty-schedulelineorderquantity.
+* ENDLOOP.
+
+* SELECT salesorder,salesorderitem,schedulelineorderquantity
+* FROM c_slsordschdlnwthcalinfodex WITH PRIVILEGED ACCESS
+* FOR ALL ENTRIES IN @delivery_document_items_in
+* WHERE salesorder = @delivery_document_items_in-referencesddocument
+* AND salesorderitem = @delivery_document_items_in-referencesddocumentitem
+* INTO TABLE @DATA(lt_orders).
+*
+* IF sy-subrc = 0.
+*   LOOP AT lt_orders INTO DATA(ls_orders).
+*     delivery_doc_changed_item_out-yy1_qtyordered_dli = ls_orders-schedulelineorderquantity.
+*   ENDLOOP.
+* ELSE.
+*   SELECT a~referencesddocument,a~referencesddocumentitem,b~schedulelineorderquantity
+*   FROM i_outbounddeliveryitem WITH PRIVILEGED ACCESS AS a
+*   INNER JOIN c_slsordschdlnwthcalinfodex WITH PRIVILEGED ACCESS AS b
+*   ON b~salesorder = a~referencesddocument
+*   AND b~salesorderitem = a~referencesddocumentitem
+*   WHERE a~outbounddelivery = @delivery_document_in-deliverydocument
+*   INTO TABLE @DATA(lt_orderqty).
+*
+*   IF sy-subrc = 0.
+*     LOOP AT lt_orderqty INTO DATA(ls_orderqty).
+*       delivery_doc_changed_item_out-yy1_qtyordered_dli = ls_orderqty-schedulelineorderquantity.
+*     ENDLOOP.
+*   ENDIF.
+* ENDIF.
+
+ "JW: To get requested quantity for the ordered qty col in delivery form --- suggested by Ojas 04/06/2025
+* SELECT a~referencesddocument,a~referencesddocumentitem,b~requestedquantity
+*  FROM i_outbounddeliveryitem WITH PRIVILEGED ACCESS AS a
+*  INNER JOIN i_salesorderitem WITH PRIVILEGED ACCESS AS b
+*  ON b~salesorder = a~referencesddocument
+*  AND b~salesorderitem = a~referencesddocumentitem
+*  WHERE a~outbounddelivery = @delivery_document_in-deliverydocument
+*  INTO TABLE @DATA(lt_orderedqty).
+*
+* IF sy-subrc = 0.
+*   LOOP AT lt_orderedqty INTO DATA(ls_orderedqty).
+*     delivery_doc_changed_item_out-yy1_qtyordered_dli = ls_orderedqty-requestedquantity.
+*   ENDLOOP.
+* ENDIF.
+*********** To pass the original delivery quantity -- 24/06/2025
+* SELECT SINGLE *
+* FROM i_deliverydocumentitem WITH PRIVILEGED ACCESS
+* WHERE deliverydocument   = @delivery_doc_changed_item_out-deliverydocument
+* AND deliverydocumentitem = @delivery_doc_changed_item_out-deliverydocumentitem
+* INTO @DATA(ls_originaldeliveryqty).
+
+**** To pass the Sales Order  Order Quantity for displaying it as Ordered Quantity in Delivery Note Form
+* DATA lv_orderedqty TYPE c LENGTH 10.
+ SELECT SINGLE *
+ FROM i_salesdocumentitem WITH PRIVILEGED ACCESS
+ WHERE salesdocument     = @delivery_doc_changed_item_out-referencesddocument
+ AND   salesdocumentitem = @delivery_doc_changed_item_out-referencesddocumentitem
+ INTO @DATA(ls_orderedqty).
+
+ IF sy-subrc = 0.
+*   DATA(lv_orderedqty) = ls_orderedqty-orderquantity.
+*   delivery_doc_changed_item_out-yy1_qtyordered_dli = lv_orderedqty.
+   delivery_doc_changed_item_out-yy1_quantityordered_dli = ls_orderedqty-orderquantity.
+ ENDIF.
+
+ DATA lv_sum TYPE c LENGTH 10.
+
+ DATA lv_netweight   TYPE i_outbounddeliveryitem-itemnetweight.
+ DATA lv_grossweight TYPE i_outbounddeliveryitem-itemgrossweight.
+
+ SELECT outbounddelivery,outbounddeliveryitem,product,actualdeliveryquantity,itemgrossweight,itemnetweight
+ FROM i_outbounddeliveryitem WITH PRIVILEGED ACCESS
+ WHERE outbounddelivery    = @delivery_doc_changed_item_out-deliverydocument
+ AND   material            = @delivery_doc_changed_item_out-material
+ AND   referencesddocument = @delivery_doc_changed_item_out-referencesddocument
+ INTO TABLE @DATA(lt_deliveredquantities).
+
+ IF sy-subrc = 0.
+   LOOP AT lt_deliveredquantities INTO DATA(ls_deliveredquantities).
+     lv_sum = lv_sum + ls_deliveredquantities-actualdeliveryquantity.
+     lv_netweight = lv_netweight + ls_deliveredquantities-itemnetweight.
+     lv_grossweight = lv_grossweight + ls_deliveredquantities-itemgrossweight.
+   ENDLOOP.
+ ENDIF.
+* delivery_document_out-yy1_sumoforderqty_dlh = lv_sum.
+* delivery_doc_changed_item_out-yy1_deliveredquantity_dli = lv_sum.
+ delivery_doc_changed_item_out-yy1_deliveredqty_dli = lv_sum.
+**** to pass the sales document item category
+ delivery_doc_changed_item_out-yy1_sddocitemcategory_dli = delivery_doc_changed_item_in-deliverydocumentitemcategory.
+
+
+**** To sum up the Item new weight and gross weight for same material -- considering batch split lines -- 15/12/2025
+ delivery_doc_changed_item_out-yy1_itemgrossweight_dli = lv_grossweight.
+ delivery_doc_changed_item_out-yy1_itemnetweight_dli   = lv_netweight.
