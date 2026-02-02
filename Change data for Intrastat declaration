@@ -1,0 +1,32 @@
+DATA(lt_intercompany_invoices) = intrastatdecldata_change.
+DATA(lt_returns_document)      = intrastatdecldata_change.
+
+
+DELETE lt_intercompany_invoices WHERE intrastatsrcebusdocumenttype <> '3'. "Intercompany Documents to IE
+DELETE lt_returns_document WHERE intrastatsrcebusdocumenttype <> 'IG'.
+
+"Sales Intercompany
+SORT lt_intercompany_invoices ASCENDING BY intrastatsrcbusinessdocument intrastatsrcebusdocumentitem.
+LOOP AT intrastatdecldata_change ASSIGNING FIELD-SYMBOL(<fs_ic_change>) WHERE intrastatsrcebusdocumenttype = '3'.
+  IF <fs_ic_change>-intrastatproviderofinformation = 'GB_POI'.
+    READ TABLE lt_intercompany_invoices INTO DATA(ls_ic_change)
+    WITH KEY intrastatsrcbusinessdocument = <fs_ic_change>-intrastatsrcbusinessdocument
+             intrastatsrcebusdocumentitem = <fs_ic_change>-intrastatsrcebusdocumentitem.
+    IF sy-subrc = 0.
+      <fs_ic_change>-intrastatsrcebusdocprtncountry = 'IE'.
+    ENDIF.
+  ENDIF.
+ENDLOOP.
+
+"Returns Intercompany
+SORT lt_returns_document ASCENDING BY intrastatsrcbusinessdocument intrastatsrcebusdocumentitem.
+LOOP AT intrastatdecldata_change ASSIGNING FIELD-SYMBOL(<fs_rt_change>) WHERE intrastatsrcebusdocumenttype = 'IG'.
+  IF <fs_ic_change>-intrastatproviderofinformation = 'GB_POI'.
+    READ TABLE lt_returns_document INTO DATA(ls_rt_change)
+    WITH KEY intrastatsrcbusinessdocument = <fs_rt_change>-intrastatsrcbusinessdocument
+             intrastatsrcebusdocumentitem = <fs_rt_change>-intrastatsrcebusdocumentitem.
+    IF sy-subrc = 0.
+      <fs_rt_change>-intrastatsrcebusdocprtncountry = 'IE'.
+    ENDIF.
+  ENDIF.
+ENDLOOP.
